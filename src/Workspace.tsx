@@ -1,5 +1,20 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { api, Branding, SessionUser } from './api';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { api, fetchStoredFileBlob, Branding, SessionUser, uploadFile } from './api';
+import { Locale, t } from './i18n/catalog';
+import { HomeData, HomePage } from './HomePage';
+import { AircraftDocumentForm, AircraftPage } from './modules/AircraftPage';
+import { CommunicationPage } from './modules/CommunicationPage';
+import { CrewPage, WorkerForm } from './modules/CrewPage';
+import { FlightForm, FlightsPage } from './modules/FlightsPage';
+import { LibraryPage } from './modules/LibraryPage';
+import { MaintenancePage } from './modules/MaintenancePage';
+import { OperationsPage } from './modules/OperationsPage';
+import { SettingsPage } from './modules/SettingsPage';
+import { SmsPage } from './modules/SmsPage';
+import { NavIcon } from './navIcons';
+import { FilePreviewModal } from './ui/FilePreviewModal';
+import { useConfirm } from './ui/useConfirm';
+import { DetailPanel } from './ui/table';
 
 type ModuleId =
   | 'home'
@@ -13,26 +28,44 @@ type ModuleId =
   | 'library'
   | 'settings';
 
-const NAV: { id: ModuleId; label: string }[] = [
-  { id: 'home', label: 'Inicio' },
-  { id: 'crew', label: 'Tripulación' },
-  { id: 'aircraft', label: 'Aeronaves' },
-  { id: 'flights', label: 'Vuelos' },
-  { id: 'operations', label: 'Servicios' },
-  { id: 'maintenance', label: 'Mantenimiento' },
-  { id: 'sms', label: 'SMS' },
-  { id: 'communication', label: 'Comunicación' },
-  { id: 'library', label: 'Biblioteca' },
-  { id: 'settings', label: 'Ajustes' },
+const MAIN_NAV: ModuleId[] = [
+  'home',
+  'crew',
+  'aircraft',
+  'flights',
+  'operations',
+  'maintenance',
+  'sms',
+  'communication',
+  'library',
 ];
 
-type HomeData = {
-  flights: Record<string, unknown>[];
-  aircraft: Record<string, unknown>[];
-  submittedExpenses: number;
-  openReports: number | null;
-  dueInspections: number;
-};
+const emptyDocument = (): AircraftDocumentForm => ({
+  title: '',
+  status: 'current',
+  expiresOn: '',
+});
+
+const emptyFlight = (): FlightForm => ({
+  code: '',
+  aircraftId: '',
+  flightDate: '',
+  origin: '',
+  destination: '',
+  eobt: '0800',
+  status: 'planned',
+});
+
+const emptyWorker = (): WorkerForm => ({
+  employeeCode: '',
+  fullName: '',
+  position: '',
+  base: '',
+  status: 'active',
+  licenseNumber: '',
+  licenseExpires: '',
+  medicalExpires: '',
+});
 
 type Props = {
   token: string;
@@ -41,11 +74,26 @@ type Props = {
   tenant: { slug: string; name: string; database?: string };
   branding: Branding | null;
   hostname: string | null;
+  locale: Locale;
+  onLocaleChange: (locale: Locale) => void;
   onLogout: () => void;
 };
 
-export function Workspace({ token, user, modules, tenant, branding, hostname, onLogout }: Props) {
-  const visible = NAV.filter((item) => modules.includes(item.id));
+export function Workspace({
+  token,
+  user,
+  modules,
+  tenant,
+  branding,
+  hostname,
+  locale,
+  onLocaleChange,
+  onLogout,
+}: Props) {
+  const copy = t(locale);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const visibleMain = MAIN_NAV.filter((id) => modules.includes(id));
+  const canSettings = modules.includes('settings');
   const [view, setView] = useState<ModuleId>('home');
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [extra, setExtra] = useState<Record<string, unknown>[]>([]);
@@ -56,18 +104,44 @@ export function Workspace({ token, user, modules, tenant, branding, hostname, on
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<WorkerForm>(emptyWorker);
+  const [showForm, setShowForm] = useState(false);
+  const [scheduleRows, setScheduleRows] = useState<Record<string, unknown>[]>([]);
+  const [companySettings, setCompanySettings] = useState<Record<string, unknown> | null>(null);
+  const [settingsProfiles, setSettingsProfiles] = useState<Record<string, unknown>[]>([]);
+  const [documentForm, setDocumentForm] = useState<AircraftDocumentForm>(emptyDocument);
+  const [showDocumentForm, setShowDocumentForm] = useState(false);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+  const [fileRows, setFileRows] = useState<Record<string, unknown>[]>([]);
+  const [flightForm, setFlightForm] = useState<FlightForm>(emptyFlight);
+  const [showFlightForm, setShowFlightForm] = useState(false);
+  const [aircraftOptions, setAircraftOptions] = useState<Record<string, unknown>[]>([]);
+  const [filePreview, setFilePreview] = useState<{ id: string; name: string; mime: string } | null>(null);
   const canReadSms = user.profile === 'admin' || user.profile === 'jefe_sms';
 
+  const clock = useMemo(() => formatClock(new Date(), locale), [locale, home]);
+
   useEffect(() => {
-    if (visible.some((item) => item.id === view)) return;
-    setView(visible[0]?.id ?? 'home');
-  }, [modules, view, visible]);
+    const allowed = [...visibleMain, ...(canSettings ? (['settings'] as ModuleId[]) : [])];
+    if (allowed.some((id) => id === view)) return;
+    setView(allowed[0] ?? 'home');
+  }, [modules, view, visibleMain, canSettings]);
 
   useEffect(() => {
     let stop = false;
     setError('');
     setNotice('');
     setDetail(null);
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyWorker());
+    setRows([]);
+    setExtra([]);
+    setMore([]);
+    setLog([]);
+    setScheduleRows([]);
+    setFileRows([]);
     setLoading(true);
 
     async function load() {
@@ -87,6 +161,28 @@ export function Workspace({ token, user, modules, tenant, branding, hostname, on
           if (stop) return;
           setRows(services);
           setExtra(expenses);
+          return;
+        }
+        if (view === 'crew') {
+          const [crew, assignments] = await Promise.all([
+            api<Record<string, unknown>[]>('/crew', token),
+            api<Record<string, unknown>[]>('/crew/assignments', token),
+          ]);
+          if (stop) return;
+          setRows(crew);
+          setScheduleRows(assignments);
+          return;
+        }
+        if (view === 'settings') {
+          const [users, company, profiles] = await Promise.all([
+            api<Record<string, unknown>[]>('/settings/users', token),
+            api<Record<string, unknown> | null>('/settings/company', token),
+            api<Record<string, unknown>[]>('/settings/profiles', token),
+          ]);
+          if (stop) return;
+          setRows(users);
+          setCompanySettings(company);
+          setSettingsProfiles(profiles);
           return;
         }
         if (view === 'maintenance') {
@@ -110,15 +206,13 @@ export function Workspace({ token, user, modules, tenant, branding, hostname, on
               ? '/communication/meetings'
               : view === 'library'
                 ? '/library/documents'
-                : view === 'settings'
-                  ? '/settings/users'
                   : `/${view}`;
         const data = await api<Record<string, unknown>[]>(path, token);
         if (stop) return;
         setRows(data);
         setExtra([]);
       } catch (err) {
-        if (!stop) setError(err instanceof Error ? err.message : 'No se pudo cargar');
+        if (!stop) setError(err instanceof Error ? err.message : 'Request failed');
       } finally {
         if (!stop) setLoading(false);
       }
@@ -129,14 +223,227 @@ export function Workspace({ token, user, modules, tenant, branding, hostname, on
     };
   }, [view, token]);
 
-  async function openDetail(id: string) {
-    const path = view === 'crew' ? `/crew/${id}` : view === 'aircraft' ? `/aircraft/${id}` : `/flights/${id}`;
-    setDetail(await api<Record<string, unknown>>(path, token));
+  async function reloadSettings() {
+    const [users, company, profiles] = await Promise.all([
+      api<Record<string, unknown>[]>('/settings/users', token),
+      api<Record<string, unknown> | null>('/settings/company', token),
+      api<Record<string, unknown>[]>('/settings/profiles', token),
+    ]);
+    setRows(users);
+    setCompanySettings(company);
+    setSettingsProfiles(profiles);
   }
 
-  async function sendReport(event: FormEvent<HTMLFormElement>) {
+  async function saveCompany(body: {
+    displayName: string;
+    tagline: string;
+    primaryColor: string;
+    accentColor: string;
+  }): Promise<boolean> {
+    setError('');
+    setNotice('');
+    try {
+      const updated = await api<Record<string, unknown>>('/settings/company', token, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      setCompanySettings(updated);
+      setNotice(copy.saved);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function saveUserProfile(email: string, profile: string): Promise<boolean> {
+    setError('');
+    setNotice('');
+    try {
+      await api(`/settings/users/${encodeURIComponent(email)}/profile`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ profile }),
+      });
+      setNotice(copy.saved);
+      await reloadSettings();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function submitAircraftDocument(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    if (!detail?.id) return;
+    const docId = editingDocumentId;
+    const body = {
+      title: documentForm.title,
+      status: documentForm.status,
+      expiresOn: documentForm.expiresOn || null,
+    };
+    setError('');
+    setNotice('');
+    try {
+      if (docId) {
+        await api(`/aircraft/documents/${docId}`, token, { method: 'PUT', body: JSON.stringify(body) });
+        setNotice(copy.saved);
+      } else {
+        await api(`/aircraft/${detail.id}/documents`, token, { method: 'POST', body: JSON.stringify(body) });
+        setNotice(copy.created);
+      }
+      setShowDocumentForm(false);
+      setEditingDocumentId(null);
+      setDocumentForm(emptyDocument());
+      await openDetail(String(detail.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function askSoftDelete(message: string) {
+    return confirm({
+      title: copy.confirmTitle,
+      message,
+      confirmLabel: copy.softDelete,
+      cancelLabel: copy.cancel,
+    });
+  }
+
+  async function deleteAircraftDocument(id: string) {
+    if (!(await askSoftDelete(copy.confirmSoftDeleteDocument))) return;
+    if (!detail?.id) return;
+    setError('');
+    try {
+      await api(`/aircraft/documents/${id}`, token, { method: 'DELETE' });
+      setNotice(copy.deleted);
+      await openDetail(String(detail.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  function startEditDocument(row: Record<string, unknown>) {
+    setEditingDocumentId(String(row.id));
+    setDocumentForm({
+      title: String(row.title ?? ''),
+      status: String(row.status ?? 'current'),
+      expiresOn: String(row.expiry_date ?? '').slice(0, 10),
+    });
+    setShowDocumentForm(true);
+  }
+
+  async function reloadCrew() {
+    const [crew, assignments] = await Promise.all([
+      api<Record<string, unknown>[]>('/crew', token),
+      api<Record<string, unknown>[]>('/crew/assignments', token),
+    ]);
+    setRows(crew);
+    setScheduleRows(assignments);
+  }
+
+  async function reloadAircraftFiles(aircraftId: string) {
+    setFileRows(
+      await api<Record<string, unknown>[]>(`/files?module=aircraft&entityId=${encodeURIComponent(aircraftId)}`, token),
+    );
+  }
+
+  async function openDetail(id: string) {
+    if (!id) return;
+    const path = view === 'crew' ? `/crew/${id}` : view === 'aircraft' ? `/aircraft/${id}` : `/flights/${id}`;
+    try {
+      const data = await api<Record<string, unknown>>(path, token);
+      setDetail(data);
+      if (view === 'aircraft') await reloadAircraftFiles(id);
+    } catch (err) {
+      setDetail(null);
+      setFileRows([]);
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function uploadAircraftFile(file: File) {
+    if (!detail?.id) return;
+    setError('');
+    setNotice('');
+    const form = new FormData();
+    form.append('module', 'aircraft');
+    form.append('entityId', String(detail.id));
+    form.append('file', file);
+    try {
+      await uploadFile('/files', token, form);
+      setNotice(copy.created);
+      await reloadAircraftFiles(String(detail.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function downloadStoredFile(id: string, name: string) {
+    setError('');
+    try {
+      const { url } = await fetchStoredFileBlob(id, token);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = name;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  function openFilePreview(id: string, name: string, mime: string) {
+    setFilePreview({ id, name, mime });
+  }
+
+  async function deleteStoredFile(id: string) {
+    if (!(await askSoftDelete(copy.confirmSoftDeleteDocument))) return;
+    if (!detail?.id) return;
+    setError('');
+    try {
+      await api(`/files/${id}`, token, { method: 'DELETE' });
+      setNotice(copy.deleted);
+      await reloadAircraftFiles(String(detail.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function startCreateFlight() {
+    setError('');
+    try {
+      const aircraft = await api<Record<string, unknown>[]>('/aircraft', token);
+      setAircraftOptions(aircraft);
+      setFlightForm(emptyFlight());
+      setShowFlightForm(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function submitFlight(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setNotice('');
+    try {
+      await api('/flights', token, {
+        method: 'POST',
+        body: JSON.stringify(flightForm),
+      });
+      setShowFlightForm(false);
+      setFlightForm(emptyFlight());
+      setNotice(copy.created);
+      setRows(await api<Record<string, unknown>[]>('/flights', token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function sendReport(event: FormEvent<HTMLFormElement>): Promise<boolean> {
+    event.preventDefault();
+    const formEl = event.currentTarget;
+    const data = new FormData(formEl);
     setNotice('');
     setError('');
     try {
@@ -149,321 +456,358 @@ export function Workspace({ token, user, modules, tenant, branding, hostname, on
           severity: 'medium',
         }),
       });
-      event.currentTarget.reset();
-      setNotice('Reporte enviado. El expediente queda reservado.');
+      formEl.reset();
+      setNotice(copy.sms.sent);
       if (canReadSms) setRows(await api('/sms/reports', token));
+      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo enviar');
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
     }
   }
 
-  const title = visible.find((item) => item.id === view)?.label ?? 'Inicio';
+  async function submitCrew(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setNotice('');
+    const body = {
+      employeeCode: form.employeeCode,
+      fullName: form.fullName,
+      position: form.position,
+      base: form.base,
+      status: form.status,
+      licenseNumber: form.licenseNumber || null,
+      licenseExpires: form.licenseExpires || null,
+      medicalExpires: form.medicalExpires || null,
+    };
+    const workerId = editingId;
+    try {
+      if (workerId) {
+        await api(`/crew/${workerId}`, token, { method: 'PUT', body: JSON.stringify(body) });
+        setNotice(copy.saved);
+      } else {
+        await api('/crew', token, { method: 'POST', body: JSON.stringify(body) });
+        setNotice(copy.created);
+      }
+      setShowForm(false);
+      setEditingId(null);
+      setForm(emptyWorker());
+      await reloadCrew();
+      if (workerId) await openDetail(workerId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function submitAssignment(event: FormEvent<HTMLFormElement>): Promise<boolean> {
+    event.preventDefault();
+    if (!detail?.id) return false;
+    const formEl = event.currentTarget;
+    const data = new FormData(formEl);
+    setError('');
+    setNotice('');
+    try {
+      const starts = String(data.get('startsAt') ?? '');
+      const ends = String(data.get('endsAt') ?? '');
+      await api(`/crew/${detail.id}/assignments`, token, {
+        method: 'POST',
+        body: JSON.stringify({
+          activity: String(data.get('activity') ?? ''),
+          startsAt: starts ? new Date(starts).toISOString() : '',
+          endsAt: ends ? new Date(ends).toISOString() : '',
+          notes: String(data.get('notes') ?? ''),
+        }),
+      });
+      formEl.reset();
+      setNotice(copy.created);
+      await openDetail(String(detail.id));
+      setScheduleRows(await api('/crew/assignments', token));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function deleteAssignment(assignmentId: string) {
+    if (!(await askSoftDelete(copy.confirmSoftDeleteAssignment))) return;
+    setError('');
+    try {
+      await api(`/crew/assignments/${assignmentId}`, token, { method: 'DELETE' });
+      setNotice(copy.deleted);
+      if (detail?.id) await openDetail(String(detail.id));
+      setScheduleRows(await api('/crew/assignments', token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function softDeleteCrew(id: string) {
+    if (!(await askSoftDelete(copy.confirmSoftDeleteWorker))) return;
+    setError('');
+    try {
+      await api(`/crew/${id}`, token, { method: 'DELETE' });
+      setNotice(copy.deleted);
+      setDetail(null);
+      await reloadCrew();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  function startEdit(row: Record<string, unknown>) {
+    setEditingId(String(row.id));
+    setForm({
+      employeeCode: String(row.employee_code ?? ''),
+      fullName: String(row.full_name ?? ''),
+      position: String(row.position ?? ''),
+      base: String(row.base ?? ''),
+      status: String(row.status ?? 'active'),
+      licenseNumber: String(row.license_number ?? ''),
+      licenseExpires: String(row.license_expires ?? '').slice(0, 10),
+      medicalExpires: String(row.medical_expires ?? '').slice(0, 10),
+    });
+    setShowForm(true);
+  }
+
+  const initials = user.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('');
+
+  const listRows = view === 'sms' && !canReadSms ? [] : rows;
 
   return (
-    <div className="shell">
-      <header className="topbar">
-        <div className="brand-row">
-          <span className="mark" aria-hidden="true">
-            {branding?.logoMark ?? 'HC'}
-          </span>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <img className="logo logo-sm" src="/logo-havectrl.png" alt="" />
           <div>
-            <p className="eyebrow">{branding?.displayName ?? tenant.name}</p>
-            <p className="tagline">{branding?.tagline}</p>
+            <p className="brand-name">HAVECTRL</p>
+            <p className="brand-sub">Aviation Operations Platform</p>
           </div>
         </div>
-        <div className="userbox">
-          <span>
-            {user.name}
-            {user.profile ? ` · ${user.profile}` : ''}
-          </span>
-          <button type="button" className="ghost" onClick={onLogout}>
-            Salir
-          </button>
-        </div>
-      </header>
-      <div className="body">
-        <nav className="sidenav" aria-label="Módulos">
-          {visible.map((item) => (
+        <nav className="sidebar-nav" aria-label="Modules">
+          {visibleMain.map((id) => (
             <button
-              key={item.id}
+              key={id}
               type="button"
-              className={item.id === view ? 'nav on' : 'nav'}
-              aria-current={item.id === view ? 'page' : undefined}
-              onClick={() => setView(item.id)}
+              className={id === view ? 'side-link on' : 'side-link'}
+              aria-current={id === view ? 'page' : undefined}
+              onClick={() => setView(id)}
             >
-              {item.label}
+              <NavIcon id={id} />
+              <span>{copy.modules[id]}</span>
             </button>
           ))}
         </nav>
-        <main className="content">
-          <p className="meta">
-            {hostname} · base {tenant.database ?? tenant.slug}
-          </p>
-          <h1>{title}</h1>
-          {modules.length === 0 ? <p className="status">Vuelve a iniciar sesión para cargar tu perfil.</p> : null}
-          {loading ? <p className="status">Cargando…</p> : null}
+        <div className="sidebar-foot">
+          {canSettings ? (
+            <button
+              type="button"
+              className={view === 'settings' ? 'side-link on' : 'side-link'}
+              onClick={() => setView('settings')}
+            >
+              <NavIcon id="settings" />
+              <span>{copy.modules.settings}</span>
+            </button>
+          ) : null}
+          <div className="side-user">
+            <span className="avatar">{initials || 'HC'}</span>
+            <div>
+              <strong>{user.name}</strong>
+              <p>{user.profile || tenant.name}</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div className="main-pane">
+        <header className="main-top">
+          <div className="main-top-title">
+            <strong>{view in copy.modules ? copy.modules[view as keyof typeof copy.modules] : copy.appName}</strong>
+          </div>
+          <div className="main-tools">
+            <time dateTime={new Date().toISOString()}>{clock}</time>
+            <select
+              value={locale}
+              aria-label={copy.language}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (next === 'en' || next === 'es') onLocaleChange(next);
+              }}
+            >
+              <option value="en">{copy.english}</option>
+              <option value="es">{copy.spanish}</option>
+            </select>
+            <button type="button" className="ghost" onClick={onLogout}>
+              {copy.logout}
+            </button>
+          </div>
+        </header>
+
+        <main className={`main-content ${view === 'home' ? 'is-home' : 'is-module'}`}>
+          {view !== 'home' && view !== 'crew' && view !== 'settings' ? (
+            <p className="meta">
+              {hostname} · {tenant.database ?? tenant.slug}
+            </p>
+          ) : null}
+          {modules.length === 0 ? <p className="status">{copy.reloadSession}</p> : null}
+          {loading ? <p className="status">{copy.loading}</p> : null}
           {error ? (
             <p className="error" role="alert">
               {error}
             </p>
           ) : null}
-          {view === 'home' && home ? <Home data={home} showReports={canReadSms} /> : null}
+          {notice ? <p role="status">{notice}</p> : null}
+
+          {view === 'home' && home ? (
+            <HomePage
+              data={home}
+              locale={locale}
+              brandingName={branding?.displayName}
+              onOpenModule={(id) => setView(id)}
+            />
+          ) : null}
+
           {view === 'crew' ? (
-            <People rows={rows} columns={['full_name', 'position', 'base', 'license_expires']} onOpen={openDetail} />
+            <CrewPage
+              locale={locale}
+              rows={listRows}
+              scheduleRows={scheduleRows}
+              detail={detail}
+              form={form}
+              showForm={showForm}
+              editingId={editingId}
+              onSelect={openDetail}
+              onFormChange={setForm}
+              onShowForm={setShowForm}
+              onStartCreate={() => {
+                setEditingId(null);
+                setForm(emptyWorker());
+                setShowForm(true);
+              }}
+              onStartEdit={startEdit}
+              onSubmit={submitCrew}
+              onDelete={softDeleteCrew}
+              onCreateAssignment={submitAssignment}
+              onDeleteAssignment={deleteAssignment}
+            />
           ) : null}
+
           {view === 'aircraft' ? (
-            <People
-              rows={rows}
-              columns={['registration', 'model', 'technical_status', 'airframe_hours', 'airframe_cycles']}
-              onOpen={openDetail}
+            <AircraftPage
+              locale={locale}
+              rows={listRows}
+              detail={detail}
+              documentForm={documentForm}
+              showDocumentForm={showDocumentForm}
+              editingDocumentId={editingDocumentId}
+              onSelect={openDetail}
+              onDocumentFormChange={setDocumentForm}
+              onShowDocumentForm={setShowDocumentForm}
+              onStartCreateDocument={() => {
+                setEditingDocumentId(null);
+                setDocumentForm(emptyDocument());
+                setShowDocumentForm(true);
+              }}
+              onStartEditDocument={startEditDocument}
+              onSubmitDocument={submitAircraftDocument}
+              onDeleteDocument={deleteAircraftDocument}
+              fileRows={fileRows}
+              onUploadFile={uploadAircraftFile}
+              onDownloadFile={downloadStoredFile}
+              onPreviewFile={openFilePreview}
+              onDeleteFile={deleteStoredFile}
             />
           ) : null}
+
           {view === 'flights' ? (
-            <People
-              rows={rows}
-              columns={['code', 'registration', 'origin', 'destination', 'status', 'fpl_status', 'review_status']}
+            <FlightsPage
+              locale={locale}
+              rows={listRows}
+              detail={detail}
+              aircraftOptions={aircraftOptions}
+              flightForm={flightForm}
+              showFlightForm={showFlightForm}
               onOpen={openDetail}
+              onCloseDetail={() => setDetail(null)}
+              onStartCreateFlight={startCreateFlight}
+              onFlightFormChange={setFlightForm}
+              onShowFlightForm={setShowFlightForm}
+              onSubmitFlight={submitFlight}
             />
           ) : null}
+
           {view === 'operations' ? (
-            <>
-              <h2>Servicios</h2>
-              <Table rows={rows} columns={['flight_code', 'kind', 'provider', 'status', 'amount', 'currency']} />
-              <h2>Gastos</h2>
-              <Table rows={extra} columns={['flight_code', 'category', 'description', 'amount', 'currency', 'status']} />
-            </>
+            <OperationsPage locale={locale} services={listRows} expenses={extra} />
           ) : null}
+
           {view === 'maintenance' ? (
-            <>
-              <h2>Inspecciones</h2>
-              <Table rows={rows} columns={['registration', 'title', 'due_date', 'due_hours', 'status']} />
-              <h2>Discrepancias</h2>
-              <Table rows={extra} columns={['registration', 'title', 'status', 'reported_by']} />
-              <h2>Órdenes</h2>
-              <Table rows={more} columns={['registration', 'title', 'assigned_to', 'status']} />
-              <h2>Revisión de LOG</h2>
-              <Table rows={log} columns={['code', 'registration', 'pilot_name', 'flight_minutes', 'cycles', 'review_status']} />
-            </>
+            <MaintenancePage
+              locale={locale}
+              inspections={listRows}
+              discrepancies={extra}
+              orders={more}
+              logReviews={log}
+            />
           ) : null}
+
           {view === 'sms' ? (
-            <>
-              <form className="stack" onSubmit={sendReport}>
-                <label htmlFor="sms-title">Título</label>
-                <input id="sms-title" name="title" required />
-                <label htmlFor="sms-body">Relato</label>
-                <textarea id="sms-body" name="narrative" required rows={4} />
-                <label className="check">
-                  <input name="anonymous" type="checkbox" /> Enviar sin nombre
-                </label>
-                <button type="submit">Enviar reporte</button>
-              </form>
-              {notice ? <p role="status">{notice}</p> : null}
-              {canReadSms ? (
-                <Table rows={rows} columns={['title', 'severity', 'status', 'anonymous', 'reporter_email']} />
-              ) : (
-                <p>El expediente original lo consultan el administrador y el jefe de SMS.</p>
-              )}
-            </>
+            <SmsPage locale={locale} rows={listRows} canRead={canReadSms} onSubmit={sendReport} />
           ) : null}
-          {view === 'communication' ? <Table rows={rows} columns={['title', 'agenda', 'status']} /> : null}
-          {view === 'library' ? <Table rows={rows} columns={['code', 'title', 'category', 'edition', 'status']} /> : null}
-          {view === 'settings' ? <Table rows={rows} columns={['name', 'email', 'profile_name', 'active']} /> : null}
-          {detail ? <Detail data={detail} /> : null}
+
+          {view === 'communication' ? <CommunicationPage locale={locale} rows={listRows} /> : null}
+
+          {view === 'library' ? <LibraryPage locale={locale} rows={listRows} /> : null}
+
+          {view === 'settings' ? (
+            <SettingsPage
+              locale={locale}
+              users={listRows}
+              profiles={settingsProfiles}
+              branding={branding}
+              company={companySettings}
+              tenantName={tenant.name}
+              onSaveCompany={saveCompany}
+              onSaveUserProfile={saveUserProfile}
+            />
+          ) : null}
+
+          {detail && view !== 'crew' && view !== 'aircraft' && view !== 'flights' ? (
+            <DetailPanel data={detail} locale={locale} />
+          ) : null}
         </main>
       </div>
+      {confirmDialog}
+      <FilePreviewModal
+        locale={locale}
+        open={filePreview != null}
+        token={token}
+        fileId={filePreview?.id ?? null}
+        fileName={filePreview?.name ?? ''}
+        mimeType={filePreview?.mime ?? ''}
+        onClose={() => setFilePreview(null)}
+        onDownload={() => {
+          if (filePreview) void downloadStoredFile(filePreview.id, filePreview.name);
+        }}
+      />
     </div>
   );
 }
 
-function Home({ data, showReports }: { data: HomeData; showReports: boolean }) {
-  return (
-    <>
-      <div className="stats">
-        <article>
-          <p>Gastos enviados</p>
-          <strong>{data.submittedExpenses}</strong>
-        </article>
-        <article>
-          <p>Inspecciones vencidas</p>
-          <strong>{data.dueInspections}</strong>
-        </article>
-        {showReports && data.openReports != null ? (
-          <article>
-            <p>Reportes SMS abiertos</p>
-            <strong>{data.openReports}</strong>
-          </article>
-        ) : null}
-      </div>
-      <h2>Vuelos</h2>
-      <Table rows={data.flights} columns={['code', 'flight_date', 'origin', 'destination', 'status']} />
-      <h2>Aeronaves</h2>
-      <Table rows={data.aircraft} columns={['registration', 'model', 'technical_status']} />
-    </>
-  );
-}
-
-function People({
-  rows,
-  columns,
-  onOpen,
-}: {
-  rows: Record<string, unknown>[];
-  columns: string[];
-  onOpen: (id: string) => void;
-}) {
-  if (!rows.length) return <p className="status">Sin registros.</p>;
-  return (
-    <table>
-      <thead>
-        <tr>
-          {columns.map((column) => (
-            <th key={column}>{label(column)}</th>
-          ))}
-          <th>Acción</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={String(row.id)}>
-            {columns.map((column) => (
-              <td key={column}>{text(row[column])}</td>
-            ))}
-            <td>
-              <button type="button" className="ghost" onClick={() => onOpen(String(row.id))}>
-                Abrir
-              </button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function Table({ rows, columns }: { rows: Record<string, unknown>[]; columns: string[] }) {
-  if (!rows.length) return <p className="status">Sin registros.</p>;
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column}>{label(column)}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={String(row.id ?? index)}>
-              {columns.map((column) => (
-                <td key={column}>{text(row[column])}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Detail({ data }: { data: Record<string, unknown> }) {
-  return (
-    <section className="panel detail">
-      <h2>Detalle</h2>
-      {Object.entries(data).map(([key, value]) =>
-        Array.isArray(value) ? (
-          <div key={key}>
-            <h3>{label(key)}</h3>
-            <Table rows={value as Record<string, unknown>[]} columns={columnsOf(value)} />
-          </div>
-        ) : value && typeof value === 'object' ? (
-          <dl key={key}>
-            {Object.entries(value as Record<string, unknown>).map(([field, fieldValue]) => (
-              <div key={field}>
-                <dt>{label(field)}</dt>
-                <dd>{text(fieldValue)}</dd>
-              </div>
-            ))}
-          </dl>
-        ) : (
-          <p key={key}>
-            {label(key)}: {text(value)}
-          </p>
-        ),
-      )}
-    </section>
-  );
-}
-
-function columnsOf(rows: unknown[]) {
-  const first = rows[0];
-  if (!first || typeof first !== 'object') return [];
-  return Object.keys(first as Record<string, unknown>).filter((key) => key !== 'id');
-}
-
-function text(value: unknown) {
-  if (value == null || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'sí' : 'no';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-function label(column: string) {
-  const names: Record<string, string> = {
-    full_name: 'Nombre',
-    position: 'Cargo',
-    base: 'Base',
-    license_expires: 'Licencia',
-    registration: 'Matrícula',
-    model: 'Modelo',
-    technical_status: 'Estado técnico',
-    airframe_hours: 'Horas',
-    airframe_cycles: 'Ciclos',
-    code: 'Vuelo',
-    origin: 'Origen',
-    destination: 'Destino',
-    status: 'Estado',
-    fpl_status: 'FPL',
-    review_status: 'LOG',
-    flight_code: 'Vuelo',
-    flight_date: 'Fecha',
-    kind: 'Servicio',
-    provider: 'Proveedor',
-    amount: 'Importe',
-    currency: 'Moneda',
-    category: 'Categoría',
-    description: 'Descripción',
-    title: 'Título',
-    due_date: 'Vence',
-    due_hours: 'Horas límite',
-    assigned_to: 'Asignado',
-    severity: 'Severidad',
-    anonymous: 'Anónimo',
-    reporter_email: 'Autor',
-    agenda: 'Agenda',
-    edition: 'Edición',
-    email: 'Correo',
-    profile_name: 'Perfil',
-    name: 'Nombre',
-    active: 'Activo',
-    reported_by: 'Reportó',
-    pilot_name: 'Piloto',
-    flight_minutes: 'Minutos',
-    cycles: 'Ciclos',
-    worker: 'Persona',
-    assignments: 'Asignaciones',
-    experience: 'Experiencia',
-    aircraft: 'Aeronave',
-    documents: 'Documentos',
-    history: 'Historial',
-    flight: 'Vuelo',
-    plan: 'Plan',
-    log: 'Bitácora',
-    hours: 'Horas',
-    activity: 'Actividad',
-    notes: 'Notas',
-    route: 'Ruta',
-    profile: 'Perfil',
-  };
-  return names[column] ?? column;
+function formatClock(date: Date, locale: Locale) {
+  const fmt = new Intl.DateTimeFormat(locale === 'es' ? 'es-VE' : 'en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZoneName: 'short',
+  });
+  return fmt.format(date);
 }

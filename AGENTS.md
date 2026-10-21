@@ -34,13 +34,23 @@ El color acompaña al texto del estado. No uses solo un punto de color.
 
 ## Idioma y códigos
 
-Inglés es el idioma inicial. Español se elige en el login y en preferencias, y se guarda en la cuenta. Traduce etiquetas, botones, validaciones y estados. No traduzcas matrículas, códigos OACI, FPL, DLA, CHG, CNL, METAR, TAF, NOTAM ni el texto de un formulario oficial o de una firma.
+Inglés es el idioma inicial. Español se elige en el login y en el workspace, y se guarda en la cuenta (`PATCH /settings/language`). El catálogo vive en `src/i18n/catalog.ts`. Traduce etiquetas, botones, validaciones y estados. No traduzcas matrículas, códigos OACI, FPL, DLA, CHG, CNL, METAR, TAF, NOTAM ni el texto de un formulario oficial o de una firma.
 
 Cambiar de idioma no cambia identificadores, filtros ni el borrador.
+
+## Soft delete y Crew
+
+Los listados no muestran registros con `deleted_at`. En Crew, desactivar usa `DELETE /crew/:id` (borrado lógico). Crear y editar usan `POST /crew` y `PUT /crew/:id`.
+
+## Marca
+
+Logo HAVECTRL en `/logo-havectrl.png`. Base visual negra / plata / azul cielo. Tras `GET /common/domain/config` (y tras el login) aplica `primaryColor` y `accentColor` del tenant a `--tenant` y `--tenant-accent` para pintar acentos, botones y barra. El logo del operador no sustituye el de HAVECTRL en la app.
 
 ## Iteración 1
 
 Construye las pantallas de Home, Settings, Crew, Aircraft, Flights (plan Venezuela, LOG, conversor, adjunto de peso y balance), Operations Services, Maintenance básico, SMS, actas y biblioteca.
+
+Home sigue el Anexo Visual: sidebar oscura, contenido claro, hero “YOU HAVE CONTROL.”, cards de resumen, vuelos, flota y actividad. No inventes módulos ni contadores de un módulo sin permiso.
 
 No dibujes mapas en vivo, clima, NOTAM, seguimiento, llamada con video ni un chat de IA como si ya funcionaran. Si la pestaña existe en el manual y pertenece a otra iteración, no la ofrezcas activa.
 

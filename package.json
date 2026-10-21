@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node src/i18n/catalog.spec.mjs"
   },
   "dependencies": {
     "react": "^19.1.1",
