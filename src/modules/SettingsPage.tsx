@@ -7,6 +7,14 @@ import { TableSearchBar } from '../ui/TableSearchBar';
 import { filterRowsBySearch } from '../ui/table-filter';
 import { DataTable } from '../ui/table';
 
+const INTEGRATION_ROWS = [
+  { capability: 'Map / satellite', vendor: 'Mapbox', phase: 'Iteration 2', status: 'not_configured' },
+  { capability: 'ADS-B tracking', vendor: 'ADS-B Exchange', phase: 'Iteration 2', status: 'not_configured' },
+  { capability: 'Weather', vendor: 'The Weather Company', phase: 'Iteration 2', status: 'not_configured' },
+  { capability: 'NOTAM', vendor: 'TBD', phase: 'Iteration 2', status: 'not_configured' },
+  { capability: 'AIRAC / navdata', vendor: 'Lido', phase: 'Iteration 2', status: 'not_configured' },
+];
+
 type CompanyForm = {
   displayName: string;
   tagline: string;
@@ -53,6 +61,14 @@ export function SettingsPage({
   const roleUsersVisible = useMemo(
     () => filterRowsBySearch(users, roleUserSearch),
     [users, roleUserSearch],
+  );
+  const integrationRows = useMemo(
+    () =>
+      INTEGRATION_ROWS.map((row) => ({
+        ...row,
+        status: copy.settingsForm.notConfigured,
+      })),
+    [copy.settingsForm.notConfigured],
   );
 
   function openCompanyModal() {
@@ -275,7 +291,19 @@ export function SettingsPage({
         </div>
       ) : null}
 
-      {tab !== 'general' && tab !== 'roles' ? (
+      {tab === 'integrations' ? (
+        <DataPanel title={copy.tabs.settingsIntegrations}>
+          <p className="status">{copy.settingsForm.integrationsIntro}</p>
+          <DataTable
+            rows={integrationRows}
+            columns={['capability', 'vendor', 'phase', 'status']}
+            locale={locale}
+            searchable={false}
+          />
+        </DataPanel>
+      ) : null}
+
+      {tab !== 'general' && tab !== 'roles' && tab !== 'integrations' ? (
         <DataPanel title={copy.modules.settings}>
           <p className="status">{copy.moduleSubs.comingSoon}</p>
         </DataPanel>

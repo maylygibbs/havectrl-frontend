@@ -2,7 +2,8 @@ import { FormEvent, useState } from 'react';
 import { Locale, t } from '../i18n/catalog';
 import { DataPanel, ModuleHero, ModuleTabs } from '../ui/ModuleChrome';
 import { Modal } from '../ui/Modal';
-import { cellText, DataTable, DetailPanel } from '../ui/table';
+import { FlightDetailPanel } from './FlightDetailPanel';
+import { cellText, DataTable } from '../ui/table';
 
 export type FlightForm = {
   code: string;
@@ -27,6 +28,19 @@ type Props = {
   onFlightFormChange: (form: FlightForm) => void;
   onShowFlightForm: (show: boolean) => void;
   onSubmitFlight: (event: FormEvent<HTMLFormElement>) => void;
+  onAddLeg: (flightId: string, body: { origin: string; destination: string; eet: string }) => Promise<boolean>;
+  onDeleteLeg: (legId: string) => Promise<boolean>;
+  onSaveFlightLog: (
+    flightId: string,
+    form: {
+      blockMinutes: string;
+      flightMinutes: string;
+      cycles: string;
+      pilotName: string;
+      reviewStatus: string;
+      notes: string;
+    },
+  ) => Promise<boolean>;
 };
 
 export function FlightsPage({
@@ -42,6 +56,9 @@ export function FlightsPage({
   onFlightFormChange,
   onShowFlightForm,
   onSubmitFlight,
+  onAddLeg,
+  onDeleteLeg,
+  onSaveFlightLog,
 }: Props) {
   const copy = t(locale);
   const [tab, setTab] = useState<
@@ -154,10 +171,18 @@ export function FlightsPage({
         closeLabel={copy.cancel}
         onClose={onCloseDetail}
       >
-        {detail ? <DetailPanel data={detail} locale={locale} showTitle={false} /> : null}
+        {detail ? (
+          <FlightDetailPanel
+            locale={locale}
+            detail={detail}
+            onAddLeg={onAddLeg}
+            onDeleteLeg={onDeleteLeg}
+            onSaveLog={onSaveFlightLog}
+          />
+        ) : null}
       </Modal>
 
-      {(tab === 'planning' || tab === 'tracking') && (
+      {tab === 'planning' && (
         <>
           <div className="module-toolbar">
             <button type="button" onClick={onStartCreateFlight}>
@@ -174,6 +199,12 @@ export function FlightsPage({
           </DataPanel>
         </>
       )}
+
+      {tab === 'tracking' ? (
+        <DataPanel title={copy.tabs.flightTracking}>
+          <p className="status">{copy.moduleSubs.iteration2Unavailable}</p>
+        </DataPanel>
+      ) : null}
 
       {tab === 'plan' && (
         <DataPanel title={copy.tabs.flightPlan}>
@@ -204,12 +235,12 @@ export function FlightsPage({
       ) : null}
       {tab === 'weather' ? (
         <DataPanel title={copy.tabs.weatherNotams}>
-          <p className="status">{copy.moduleSubs.comingSoon}</p>
+          <p className="status">{copy.moduleSubs.iteration2Unavailable}</p>
         </DataPanel>
       ) : null}
       {tab === 'converter' ? (
         <DataPanel title={copy.tabs.unitConverter}>
-          <p className="status">{copy.moduleSubs.comingSoon}</p>
+          <p className="status">{copy.moduleSubs.iteration2Unavailable}</p>
         </DataPanel>
       ) : null}
     </div>

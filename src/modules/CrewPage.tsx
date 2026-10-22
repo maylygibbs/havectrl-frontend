@@ -1,10 +1,21 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Locale, t } from '../i18n/catalog';
-import { DataPanel, MasterList, ModuleHero, ModuleTabs, StatusPill } from '../ui/ModuleChrome';
+import { ModuleHero, ModuleTabs } from '../ui/ModuleChrome';
 import { Modal } from '../ui/Modal';
-import { TableSearchBar } from '../ui/TableSearchBar';
-import { filterRowsBySearch } from '../ui/table-filter';
-import { DataTable, DetailPanel, cellText } from '../ui/table';
+import { CrewDataPanel } from './crew/CrewDataPanel';
+import { CrewDirectory } from './crew/CrewDirectory';
+import { CrewExperiencePanel } from './crew/CrewExperiencePanel';
+import { CrewSchedulePanel } from './crew/CrewSchedulePanel';
+import { defaultAssignmentRange, licenseAlert, toDatetimeLocalValue } from './crew/crew-utils';
+
+export type CrewDocumentForm = {
+  category: string;
+  title: string;
+  documentNumber: string;
+  issuer: string;
+  expiresOn: string;
+  status: string;
+};
 
 export type WorkerForm = {
   employeeCode: string;
@@ -34,6 +45,20 @@ type Props = {
   onDelete: (id: string) => void;
   onCreateAssignment: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   onDeleteAssignment: (assignmentId: string) => void;
+  crewDocumentForm: CrewDocumentForm;
+  showCrewDocumentForm: boolean;
+  editingCrewDocumentId: string | null;
+  onCrewDocumentFormChange: (form: CrewDocumentForm) => void;
+  onShowCrewDocumentForm: (show: boolean) => void;
+  onStartCreateCrewDocument: (category: string) => void;
+  onStartEditCrewDocument: (row: Record<string, unknown>) => void;
+  onSubmitCrewDocument: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteCrewDocument: (id: string) => void;
+  fileRows: Record<string, unknown>[];
+  onUploadFile: (file: File) => void;
+  onDownloadFile: (id: string, name: string) => void;
+  onPreviewFile: (id: string, name: string, mime: string) => void;
+  onDeleteFile: (id: string) => void;
 };
 
 function WorkerFormFields({
@@ -130,30 +155,61 @@ export function CrewPage({
   scheduleRows,
   onCreateAssignment,
   onDeleteAssignment,
+  crewDocumentForm,
+  showCrewDocumentForm,
+  editingCrewDocumentId,
+  onCrewDocumentFormChange,
+  onShowCrewDocumentForm,
+  onStartCreateCrewDocument,
+  onStartEditCrewDocument,
+  onSubmitCrewDocument,
+  onDeleteCrewDocument,
+  fileRows,
+  onUploadFile,
+  onDownloadFile,
+  onPreviewFile,
+  onDeleteFile,
 }: Props) {
   const copy = t(locale);
   const [tab, setTab] = useState<'data' | 'schedule' | 'experience'>('data');
   const [assignmentOpen, setAssignmentOpen] = useState(false);
-  const [scheduleSearch, setScheduleSearch] = useState('');
-  const scheduleVisible = useMemo(
-    () => filterRowsBySearch(scheduleRows, scheduleSearch),
-    [scheduleRows, scheduleSearch],
-  );
+  const [assignmentStart, setAssignmentStart] = useState('');
+  const [assignmentEnd, setAssignmentEnd] = useState('');
+
+  useEffect(() => {
+    if (!assignmentOpen) return;
+    const { start, end } = defaultAssignmentRange();
+    setAssignmentStart(start);
+    setAssignmentEnd(end);
+  }, [assignmentOpen]);
   const selectedId = detail ? String(detail.id) : rows[0] ? String(rows[0].id) : null;
 
   useEffect(() => {
     const first = rows[0];
     if (!detail && first && 'full_name' in first) onSelect(String(first.id));
-    // Auto-select first crew member once list loads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows.length, detail?.id]);
 
-  const items = useMemo(
+  const directoryItems = useMemo(
     () =>
       rows.map((row) => ({
         id: String(row.id),
         title: String(row.full_name ?? '—'),
-        subtitle: `${row.position ?? '—'} · ${row.base ?? '—'}`,
+        employeeCode: String(row.employee_code ?? '—'),
+        position: String(row.position ?? '—'),
+        base: String(row.base ?? '—'),
+        status: String(row.status ?? 'active'),
+        alert: licenseAlert(row.license_expires),
+      })),
+    [rows],
+  );
+
+  const crewRows = useMemo(
+    () =>
+      rows.map((row) => ({
+        id: String(row.id),
+        full_name: String(row.full_name ?? '—'),
+        position: String(row.position ?? '—'),
         status: String(row.status ?? 'active'),
       })),
     [rows],
@@ -165,13 +221,14 @@ export function CrewPage({
   }
 
   return (
-    <div className="module-page">
+    <div className="module-page crew-module">
       <ModuleHero
         title={copy.modules.crew}
-        subtitle={copy.moduleSubs.crew}
+        subtitle={copy.crew.heroSubtitle}
         image="/heroes/hero-crew.png"
       />
-      <header className="module-head">
+
+      <header className={`module-head crew-module-head${tab === 'schedule' ? ' crew-module-head-schedule' : ''}`}>
         <ModuleTabs
           tabs={[
             { id: 'data', label: copy.tabs.crewData },
@@ -181,6 +238,20 @@ export function CrewPage({
           active={tab}
           onChange={(id) => setTab(id as typeof tab)}
         />
+        {tab === 'schedule' ? (
+          <button
+            type="button"
+            className="crew-assign-flight-btn"
+            onClick={() => {
+              const id = selectedId ?? (rows[0] ? String(rows[0].id) : null);
+              if (!id) return;
+              onSelect(id);
+              setAssignmentOpen(true);
+            }}
+          >
+            {copy.crew.assignFlight}
+          </button>
+        ) : null}
       </header>
 
       <Modal
@@ -200,22 +271,127 @@ export function CrewPage({
       </Modal>
 
       <Modal
+        open={showCrewDocumentForm}
+        title={editingCrewDocumentId ? copy.aircraftForm.editDocument : copy.crew.newDocument}
+        closeLabel={copy.cancel}
+        onClose={() => onShowCrewDocumentForm(false)}
+      >
+        <form className="stack" onSubmit={onSubmitCrewDocument}>
+          <label htmlFor="crew-doc-title">{copy.columns.title}</label>
+          <input
+            id="crew-doc-title"
+            value={crewDocumentForm.title}
+            onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, title: e.target.value })}
+            required
+          />
+          <label htmlFor="crew-doc-number">{copy.crew.documentNumber}</label>
+          <input
+            id="crew-doc-number"
+            value={crewDocumentForm.documentNumber}
+            onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, documentNumber: e.target.value })}
+          />
+          <label htmlFor="crew-doc-issuer">{copy.crew.issuer}</label>
+          <input
+            id="crew-doc-issuer"
+            value={crewDocumentForm.issuer}
+            onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, issuer: e.target.value })}
+          />
+          <label htmlFor="crew-doc-expires">{copy.crew.documentExpires}</label>
+          <input
+            id="crew-doc-expires"
+            type="date"
+            value={crewDocumentForm.expiresOn}
+            onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, expiresOn: e.target.value })}
+          />
+          <label htmlFor="crew-doc-status">{copy.columns.status}</label>
+          <input
+            id="crew-doc-status"
+            value={crewDocumentForm.status}
+            onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, status: e.target.value })}
+          />
+          <div className="actions">
+            <button type="submit">{editingCrewDocumentId ? copy.save : copy.create}</button>
+            <button type="button" className="ghost" onClick={() => onShowCrewDocumentForm(false)}>
+              {copy.cancel}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
         open={assignmentOpen}
         title={copy.crew.newAssignment}
         closeLabel={copy.cancel}
         onClose={() => setAssignmentOpen(false)}
       >
         <form className="stack" onSubmit={submitAssignment}>
+          {detail ? (
+            <p className="status crew-assignment-for">
+              {copy.crew.assignmentForWorker}: <strong>{String(detail.full_name)}</strong>
+            </p>
+          ) : (
+            <p className="status">{copy.crew.assignmentNeedWorker}</p>
+          )}
           <label htmlFor="assignment-activity">{copy.crew.assignmentActivity}</label>
-          <input id="assignment-activity" name="activity" required placeholder="Flight Duty, Work, Standby…" />
+          <select id="assignment-activity" name="activity" required defaultValue="Flight Duty">
+            <option value="Flight Duty">{copy.crew.activityFlight}</option>
+            <option value="Work">{copy.crew.activityWork}</option>
+            <option value="Standby">{copy.crew.activityStandby}</option>
+            <option value="Training">{copy.crew.activityTraining}</option>
+            <option value="Rest">{copy.crew.activityRest}</option>
+            <option value="Day Off">{copy.crew.activityDayOff}</option>
+            <option value="Unavailable">{copy.crew.activityUnavailable}</option>
+          </select>
+          <label htmlFor="assignment-flight-code">{copy.crew.flightCode}</label>
+          <input id="assignment-flight-code" name="flightCode" placeholder="HV1234" />
+          <div className="crew-assignment-route">
+            <div>
+              <label htmlFor="assignment-origin">{copy.crew.routeOrigin}</label>
+              <input id="assignment-origin" name="origin" placeholder="SVMI" maxLength={4} />
+            </div>
+            <div>
+              <label htmlFor="assignment-destination">{copy.crew.routeDestination}</label>
+              <input id="assignment-destination" name="destination" placeholder="SVVA" maxLength={4} />
+            </div>
+          </div>
+          <label htmlFor="assignment-aircraft">{copy.crew.aircraftRegistration}</label>
+          <input id="assignment-aircraft" name="aircraftRegistration" placeholder="YV3301" />
           <label htmlFor="assignment-start">{copy.crew.startsAt}</label>
-          <input id="assignment-start" name="startsAt" type="datetime-local" required />
+          <input
+            id="assignment-start"
+            name="startsAt"
+            type="datetime-local"
+            required
+            value={assignmentStart}
+            onChange={(e) => {
+              const value = e.target.value;
+              setAssignmentStart(value);
+              if (!value) return;
+              const start = new Date(value);
+              const end = new Date(assignmentEnd);
+              if (!assignmentEnd || Number.isNaN(end.getTime()) || end <= start) {
+                const bumped = new Date(start);
+                bumped.setHours(bumped.getHours() + 2);
+                setAssignmentEnd(toDatetimeLocalValue(bumped));
+              }
+            }}
+          />
           <label htmlFor="assignment-end">{copy.crew.endsAt}</label>
-          <input id="assignment-end" name="endsAt" type="datetime-local" required />
+          <input
+            id="assignment-end"
+            name="endsAt"
+            type="datetime-local"
+            required
+            value={assignmentEnd}
+            min={assignmentStart || undefined}
+            onChange={(e) => setAssignmentEnd(e.target.value)}
+          />
           <label htmlFor="assignment-notes">{copy.crew.notes}</label>
-          <input id="assignment-notes" name="notes" />
+          <input id="assignment-notes" name="notes" placeholder={copy.crew.assignmentNotesHint} />
           <div className="actions">
-            <button type="submit">{copy.create}</button>
+            <button type="submit" disabled={!detail?.id}>
+              {copy.create}
+            </button>
             <button type="button" className="ghost" onClick={() => setAssignmentOpen(false)}>
               {copy.cancel}
             </button>
@@ -223,153 +399,58 @@ export function CrewPage({
         </form>
       </Modal>
 
-      {tab === 'data' ? (
-        <div className="split-layout">
-          <MasterList
-            title={copy.crew.title}
-            actionLabel={copy.crew.newWorker}
-            onAction={onStartCreate}
-            items={items}
+      <div className={tab === 'schedule' ? 'crew-shell crew-shell-roster' : 'crew-shell split-layout'}>
+        {tab !== 'schedule' ? (
+          <CrewDirectory
+            locale={locale}
+            items={directoryItems}
             selectedId={selectedId}
             onSelect={onSelect}
+            onAddWorker={onStartCreate}
             empty={copy.empty}
-            locale={locale}
           />
-          <div className="split-main">
-            {detail ? (
-              <DataPanel
-                title={String(detail.full_name ?? copy.crew.title)}
-                action={
-                  <div className="actions">
-                    <button type="button" className="ghost btn-compact" onClick={() => onStartEdit(detail)}>
-                      {copy.crew.edit}
-                    </button>
-                    <button type="button" className="ghost danger btn-compact" onClick={() => onDelete(String(detail.id))}>
-                      {copy.softDelete}
-                    </button>
-                  </div>
-                }
-              >
-                <div className="profile-grid">
-                  <div>
-                    <p className="muted-label">{copy.crew.employeeCode}</p>
-                    <p>{cellText(detail.employee_code)}</p>
-                  </div>
-                  <div>
-                    <p className="muted-label">{copy.crew.position}</p>
-                    <p>{cellText(detail.position)}</p>
-                  </div>
-                  <div>
-                    <p className="muted-label">{copy.crew.base}</p>
-                    <p>{cellText(detail.base)}</p>
-                  </div>
-                  <div>
-                    <p className="muted-label">{copy.crew.status}</p>
-                    <StatusPill status={String(detail.status ?? 'active')} />
-                  </div>
-                  <div>
-                    <p className="muted-label">{copy.crew.licenseExpires}</p>
-                    <p>{cellText(detail.license_expires)}</p>
-                  </div>
-                </div>
-                {Array.isArray(detail.assignments) ? (
-                  <>
-                    <h3>{copy.tabs.crewSchedule}</h3>
-                    <DataTable
-                      rows={detail.assignments as Record<string, unknown>[]}
-                      columns={['activity', 'starts_at', 'ends_at', 'notes']}
-                      locale={locale}
-                    />
-                  </>
-                ) : null}
-                {Array.isArray(detail.experience) ? (
-                  <>
-                    <h3>{copy.tabs.crewExperience}</h3>
-                    <DataTable
-                      rows={detail.experience as Record<string, unknown>[]}
-                      columns={['category', 'hours', 'as_of']}
-                      locale={locale}
-                    />
-                  </>
-                ) : null}
-              </DataPanel>
+        ) : null}
+
+        <div className={tab === 'schedule' ? 'crew-roster-page' : 'split-main crew-main'}>
+          {tab === 'data' ? (
+            detail ? (
+              <CrewDataPanel
+                locale={locale}
+                detail={detail}
+                onEdit={() => onStartEdit(detail)}
+                onEditLicenses={() => onStartEdit(detail)}
+                onDeactivate={() => onDelete(String(detail.id))}
+                onAddDocument={onStartCreateCrewDocument}
+                onEditDocument={onStartEditCrewDocument}
+                onDeleteDocument={onDeleteCrewDocument}
+                fileRows={fileRows}
+                onUploadFile={onUploadFile}
+                onDownloadFile={onDownloadFile}
+                onPreviewFile={onPreviewFile}
+                onDeleteFile={onDeleteFile}
+              />
             ) : (
-              <p className="status">{copy.empty}</p>
-            )}
-          </div>
+              <p className="status">{copy.crew.selectWorker}</p>
+            )
+          ) : null}
+
+          {tab === 'schedule' ? (
+            <CrewSchedulePanel
+              locale={locale}
+              crewRows={crewRows}
+              scheduleRows={scheduleRows}
+              onAddAssignment={(workerId) => {
+                if (workerId) onSelect(workerId);
+                setAssignmentOpen(true);
+              }}
+              onDeleteAssignment={onDeleteAssignment}
+              onSelectWorker={onSelect}
+            />
+          ) : null}
+
+          {tab === 'experience' ? <CrewExperiencePanel locale={locale} detail={detail} /> : null}
         </div>
-      ) : null}
-
-      {tab === 'schedule' ? (
-        <>
-          <div className="module-toolbar">
-            <button type="button" disabled={!detail} onClick={() => setAssignmentOpen(true)}>
-              {copy.crew.newAssignment}
-            </button>
-          </div>
-          <DataPanel title={copy.tabs.crewSchedule}>
-            <div className="table-stack">
-              {scheduleRows.length > 0 ? (
-                <TableSearchBar locale={locale} value={scheduleSearch} onChange={setScheduleSearch} />
-              ) : null}
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>{copy.columns.full_name}</th>
-                    <th>{copy.columns.activity}</th>
-                    <th>{copy.columns.starts_at}</th>
-                    <th>{copy.columns.ends_at}</th>
-                    <th>{copy.columns.notes}</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {scheduleRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6}>
-                        <p className="status">{copy.empty}</p>
-                      </td>
-                    </tr>
-                  ) : scheduleVisible.length === 0 ? (
-                    <tr>
-                      <td colSpan={6}>
-                        <p className="status">{copy.empty}</p>
-                      </td>
-                    </tr>
-                  ) : (
-                    scheduleVisible.map((row) => (
-                      <tr key={String(row.id)}>
-                        <td>{cellText(row.full_name)}</td>
-                        <td>{cellText(row.activity)}</td>
-                        <td>{cellText(row.starts_at)}</td>
-                        <td>{cellText(row.ends_at)}</td>
-                        <td>{cellText(row.notes)}</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="ghost danger btn-compact"
-                            onClick={() => onDeleteAssignment(String(row.id))}
-                          >
-                            {copy.softDelete}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            </div>
-          </DataPanel>
-        </>
-      ) : null}
-
-      {tab === 'experience' ? (
-        <DataPanel title={copy.tabs.crewExperience}>
-          {detail ? <DetailPanel data={{ experience: detail.experience ?? [] }} locale={locale} /> : <p className="status">{copy.empty}</p>}
-        </DataPanel>
-      ) : null}
+      </div>
     </div>
   );
 }

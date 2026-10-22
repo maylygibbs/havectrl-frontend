@@ -1,6 +1,8 @@
 # Checklist Iteración 1A (Base)
 
-Referencia: [04-apis-e-iteraciones.md](../../havectrl-backend/docs/producto/04-apis-e-iteraciones.md).
+Referencia: `04-apis-e-iteraciones.md` (repo havectrl-backend, `docs/producto/`).
+
+Checklist de cierre del MVP completo (1A+1B+1C): [iteracion-1-cierre.md](./iteracion-1-cierre.md).
 
 ## Estado por bloque
 

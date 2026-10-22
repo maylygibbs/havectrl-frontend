@@ -5,7 +5,7 @@ Las pantallas de la aplicaci�n siguen el **Anexo Visual del manual funcional**
 ## Qu� ve el usuario
 
 1. **Inicio** � resumen operativo (tripulaci�n, flota, vuelos del d�a, servicios, mantenimiento, comunicaci�n).
-2. **Tripulaci�n** — lista y ficha siempre visibles; crear o editar tripulante y nuevas asignaciones en ventana modal.
+2. **Tripulación** — directorio con búsqueda/filtros, pestañas Data/Schedule/Experience y ficha por secciones (manual V02); alta/edición en modal.
 3. **Aeronaves** � flota, documentos, discrepancias e historial.
 4. **Vuelos** — planificación, plan ICAO, bitácora y herramientas de apoyo; la ficha de un vuelo (Abrir) se muestra en ventana modal.
 5. **Servicios operativos** � overview de vuelo, tasas, servicios, pagos y gastos.
