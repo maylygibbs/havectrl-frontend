@@ -1,0 +1,12 @@
+---
+description: El bundle es público, la sesión no sale del origen, no hay push a main.
+alwaysApply: true
+---
+
+# Seguridad
+
+Detalle: `docs/reglas/06-seguridad.md` y reglas 1, 3 y 9 de `docs/REGLAS_DE_ORO.md`.
+
+- No versionar secretos. `VITE_*` es público.
+- Módulo ausente de `modules` = no se muestra.
+- No push directo a `main`. El merge lo hace una persona.

@@ -1,0 +1,13 @@
+---
+description: Textos en el catálogo y estados distintos para vacío, error y sin permiso.
+globs: src/**/*.tsx
+alwaysApply: false
+---
+
+# Componentes
+
+Detalle: `docs/reglas/02-estructura.md` y `docs/reglas/05-permisos-ui.md`.
+
+- Textos en `src/i18n/catalog.ts`, en los dos idiomas. HAVECTRL y los códigos oficiales no se traducen.
+- Vacío, sin permiso, sin red y error son estados distintos.
+- No llames `fetch` desde un componente.

@@ -1,0 +1,12 @@
+---
+description: No declarar listo sin npm test y, si aplica, npm run build.
+alwaysApply: true
+---
+
+# Testing
+
+Detalle: `docs/reglas/01-testing.md`.
+
+- Comando real: `npm test` (paridad `en`/`es` del catálogo).
+- Tipos o UI: también `npm run build`.
+- No hay runner de componentes. No inventes el resultado.

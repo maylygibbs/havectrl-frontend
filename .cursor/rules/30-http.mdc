@@ -1,0 +1,13 @@
+---
+description: HTTP y sesión solo en src/api.ts.
+globs: src/api.ts
+alwaysApply: false
+---
+
+# HTTP
+
+Detalle: `docs/reglas/03-http.md`.
+
+- Este archivo es el único `fetch` y el único `Authorization`.
+- Sesión en `sessionStorage`, por origen. No la pases a `localStorage`.
+- No guardes tokens de proveedores.
