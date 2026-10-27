@@ -39,8 +39,11 @@ type Props = {
       pilotName: string;
       reviewStatus: string;
       notes: string;
+      crewWorkerId: string;
+      functionCode: string;
     },
   ) => Promise<boolean>;
+  crewOptions: { id: string; full_name: string }[];
 };
 
 export function FlightsPage({
@@ -59,6 +62,7 @@ export function FlightsPage({
   onAddLeg,
   onDeleteLeg,
   onSaveFlightLog,
+  crewOptions,
 }: Props) {
   const copy = t(locale);
   const [tab, setTab] = useState<
@@ -178,6 +182,7 @@ export function FlightsPage({
             onAddLeg={onAddLeg}
             onDeleteLeg={onDeleteLeg}
             onSaveLog={onSaveFlightLog}
+            crewOptions={crewOptions}
           />
         ) : null}
       </Modal>

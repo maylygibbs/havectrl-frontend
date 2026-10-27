@@ -90,6 +90,21 @@ export async function fetchStoredFileBlob(fileId: string, token: string): Promis
   return { blob, url: URL.createObjectURL(blob), mime };
 }
 
+export async function downloadAuthorized(path: string, token: string, filename: string) {
+  const res = await fetch(`${API}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    mode: 'cors',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function uploadFile<T>(path: string, token: string, form: FormData): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     method: 'POST',

@@ -10,6 +10,8 @@ export type FlightLogForm = {
   pilotName: string;
   reviewStatus: string;
   notes: string;
+  crewWorkerId: string;
+  functionCode: string;
 };
 
 type Props = {
@@ -18,9 +20,10 @@ type Props = {
   onAddLeg: (flightId: string, body: { origin: string; destination: string; eet: string }) => Promise<boolean>;
   onDeleteLeg: (legId: string) => Promise<boolean>;
   onSaveLog: (flightId: string, form: FlightLogForm) => Promise<boolean>;
+  crewOptions: { id: string; full_name: string }[];
 };
 
-export function FlightDetailPanel({ locale, detail, onAddLeg, onDeleteLeg, onSaveLog }: Props) {
+export function FlightDetailPanel({ locale, detail, onAddLeg, onDeleteLeg, onSaveLog, crewOptions }: Props) {
   const copy = t(locale);
   const flightId = String(detail.id);
   const legs = (detail.legs as Record<string, unknown>[]) ?? [];
@@ -39,6 +42,8 @@ export function FlightDetailPanel({ locale, detail, onAddLeg, onDeleteLeg, onSav
       pilotName: String(log?.pilot_name ?? ''),
       reviewStatus: String(log?.review_status ?? 'pending'),
       notes: String(log?.notes ?? ''),
+      crewWorkerId: '',
+      functionCode: 'PIC',
     });
   }, [detail.id, detail.log]);
 
@@ -137,6 +142,31 @@ export function FlightDetailPanel({ locale, detail, onAddLeg, onDeleteLeg, onSav
             onChange={(e) => setLogForm({ ...logForm, pilotName: e.target.value })}
             required
           />
+          <label htmlFor="log-crew">{copy.crew.fullName}</label>
+          <select
+            id="log-crew"
+            value={logForm.crewWorkerId}
+            onChange={(e) => setLogForm({ ...logForm, crewWorkerId: e.target.value })}
+          >
+            <option value="">{copy.crew.selectWorker}</option>
+            {crewOptions.map((worker) => (
+              <option key={worker.id} value={worker.id}>
+                {worker.full_name}
+              </option>
+            ))}
+          </select>
+          <label htmlFor="log-function">{copy.crew.position}</label>
+          <select
+            id="log-function"
+            value={logForm.functionCode}
+            onChange={(e) => setLogForm({ ...logForm, functionCode: e.target.value })}
+          >
+            {['PIC', 'SIC', 'CABIN', 'TECH', 'DISP', 'PAX', 'SIM'].map((code) => (
+              <option key={code} value={code}>
+                {code}
+              </option>
+            ))}
+          </select>
           <label htmlFor="log-review">{copy.flightsForm.reviewStatus}</label>
           <input
             id="log-review"
@@ -195,6 +225,8 @@ function emptyLogForm(): FlightLogForm {
     cycles: '',
     pilotName: '',
     reviewStatus: 'pending',
+    crewWorkerId: '',
+    functionCode: 'PIC',
     notes: '',
   };
 }

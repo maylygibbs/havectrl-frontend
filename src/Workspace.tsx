@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { api, fetchStoredFileBlob, Branding, SessionUser, uploadFile } from './api';
+import { api, downloadAuthorized, fetchStoredFileBlob, Branding, SessionUser, uploadFile } from './api';
 import { Locale, t } from './i18n/catalog';
 import { HomeData, HomePage } from './HomePage';
 import { AircraftDocumentForm, AircraftPage } from './modules/AircraftPage';
@@ -62,6 +62,8 @@ const emptyCrewDocument = (category = 'other'): CrewDocumentForm => ({
   documentNumber: '',
   issuer: '',
   expiresOn: '',
+  effectiveOn: '',
+  privateNote: '',
   status: 'current',
 });
 
@@ -117,6 +119,9 @@ export function Workspace({
   const [form, setForm] = useState<WorkerForm>(emptyWorker);
   const [showForm, setShowForm] = useState(false);
   const [scheduleRows, setScheduleRows] = useState<Record<string, unknown>[]>([]);
+  const [assignableFlights, setAssignableFlights] = useState<
+    { code: string; origin: string; destination: string; registration: string }[]
+  >([]);
   const [companySettings, setCompanySettings] = useState<Record<string, unknown> | null>(null);
   const [settingsProfiles, setSettingsProfiles] = useState<Record<string, unknown>[]>([]);
   const [documentForm, setDocumentForm] = useState<AircraftDocumentForm>(emptyDocument);
@@ -129,6 +134,7 @@ export function Workspace({
   const [flightForm, setFlightForm] = useState<FlightForm>(emptyFlight);
   const [showFlightForm, setShowFlightForm] = useState(false);
   const [aircraftOptions, setAircraftOptions] = useState<Record<string, unknown>[]>([]);
+  const [crewOptions, setCrewOptions] = useState<{ id: string; full_name: string }[]>([]);
   const [filePreview, setFilePreview] = useState<{ id: string; name: string; mime: string } | null>(null);
   const canReadSms = user.profile === 'admin' || user.profile === 'jefe_sms';
 
@@ -176,13 +182,18 @@ export function Workspace({
           return;
         }
         if (view === 'crew') {
-          const [crew, assignments] = await Promise.all([
+          const [crew, assignments, flights] = await Promise.all([
             api<Record<string, unknown>[]>('/crew', token),
             api<Record<string, unknown>[]>('/crew/assignments', token),
+            api<{ code: string; origin: string; destination: string; registration: string }[]>(
+              '/crew/assignable-flights',
+              token,
+            ),
           ]);
           if (stop) return;
           setRows(crew);
           setScheduleRows(assignments);
+          setAssignableFlights(flights);
           return;
         }
         if (view === 'settings') {
@@ -223,6 +234,14 @@ export function Workspace({
         if (stop) return;
         setRows(data);
         setExtra([]);
+        if (view === 'flights') {
+          try {
+            const crew = await api<{ id: string; full_name: string }[]>('/crew', token);
+            if (!stop) setCrewOptions(crew);
+          } catch {
+            if (!stop) setCrewOptions([]);
+          }
+        }
       } catch (err) {
         if (!stop) setError(err instanceof Error ? err.message : 'Request failed');
       } finally {
@@ -355,6 +374,8 @@ export function Workspace({
       documentNumber: crewDocumentForm.documentNumber || null,
       issuer: crewDocumentForm.issuer || null,
       expiresOn: crewDocumentForm.expiresOn || null,
+      effectiveOn: crewDocumentForm.effectiveOn || null,
+      privateNote: crewDocumentForm.privateNote || null,
       status: crewDocumentForm.status,
     };
     setError('');
@@ -403,18 +424,25 @@ export function Workspace({
       documentNumber: String(row.document_number ?? ''),
       issuer: String(row.issuer ?? ''),
       expiresOn: String(row.expires_on ?? '').slice(0, 10),
+      effectiveOn: String(row.effective_on ?? '').slice(0, 10),
+      privateNote: String(row.private_note ?? ''),
       status: String(row.status ?? 'current'),
     });
     setShowCrewDocumentForm(true);
   }
 
   async function reloadCrew() {
-    const [crew, assignments] = await Promise.all([
+    const [crew, assignments, flights] = await Promise.all([
       api<Record<string, unknown>[]>('/crew', token),
       api<Record<string, unknown>[]>('/crew/assignments', token),
+      api<{ code: string; origin: string; destination: string; registration: string }[]>(
+        '/crew/assignable-flights',
+        token,
+      ),
     ]);
     setRows(crew);
     setScheduleRows(assignments);
+    setAssignableFlights(flights);
   }
 
   async function reloadAircraftFiles(aircraftId: string) {
@@ -575,6 +603,8 @@ export function Workspace({
       pilotName: string;
       reviewStatus: string;
       notes: string;
+      crewWorkerId: string;
+      functionCode: string;
     },
   ): Promise<boolean> {
     setError('');
@@ -589,6 +619,9 @@ export function Workspace({
           pilotName: form.pilotName,
           reviewStatus: form.reviewStatus,
           notes: form.notes,
+          crew: form.crewWorkerId
+            ? [{ workerId: form.crewWorkerId, functionCode: form.functionCode, countsAsFlight: form.functionCode !== 'PAX' }]
+            : [],
         }),
       });
       await openDetail(flightId);
@@ -711,6 +744,85 @@ export function Workspace({
       setNotice(copy.deleted);
       if (detail?.id) await openDetail(String(detail.id));
       setScheduleRows(await api('/crew/assignments', token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function publishAssignment(assignmentId: string) {
+    setError('');
+    try {
+      await api(`/crew/assignments/${assignmentId}/publish`, token, { method: 'POST' });
+      setNotice(copy.saved);
+      setScheduleRows(await api('/crew/assignments', token));
+      if (detail?.id) await openDetail(String(detail.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function requestAssignmentChange(assignmentId: string, reason: string) {
+    setError('');
+    try {
+      await api(`/crew/assignments/${assignmentId}/change-requests`, token, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
+      setNotice(copy.saved);
+      if (detail?.id) await openDetail(String(detail.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function reviewChangeRequest(requestId: string, decision: 'approve' | 'reject') {
+    setError('');
+    try {
+      await api(`/crew/change-requests/${requestId}/review`, token, {
+        method: 'POST',
+        body: JSON.stringify({ decision: decision === 'approve' ? 'approve' : 'reject' }),
+      });
+      setNotice(copy.saved);
+      if (detail?.id) await openDetail(String(detail.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function reviewCrewDocument(id: string, decision: 'accept' | 'reject') {
+    setError('');
+    try {
+      await api(`/crew/documents/${id}/review`, token, {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      });
+      setNotice(copy.saved);
+      if (detail?.id) await openDetail(String(detail.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function exportCrewPdf(kind: 'profile' | 'schedule' | 'experience') {
+    if (!detail?.id) return;
+    setError('');
+    try {
+      await downloadAuthorized(`/crew/${String(detail.id)}/export/${kind}`, token, `crew-${kind}.pdf`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function addPreviousExperience(origin: string, minutes: string, asOf: string) {
+    if (!detail?.id) return;
+    setError('');
+    try {
+      await api(`/crew/${String(detail.id)}/previous-experience`, token, {
+        method: 'POST',
+        body: JSON.stringify({ origin, flightMinutes: Number(minutes), asOf: asOf || undefined }),
+      });
+      setNotice(copy.saved);
+      await openDetail(String(detail.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
     }
@@ -867,7 +979,14 @@ export function Workspace({
               onSubmit={submitCrew}
               onDelete={softDeleteCrew}
               onCreateAssignment={submitAssignment}
+              assignableFlights={assignableFlights}
               onDeleteAssignment={deleteAssignment}
+              onPublishAssignment={publishAssignment}
+              onRequestChange={requestAssignmentChange}
+              onReviewChange={reviewChangeRequest}
+              onReviewDocument={reviewCrewDocument}
+              onExportPdf={exportCrewPdf}
+              onAddPrevious={addPreviousExperience}
               crewDocumentForm={crewDocumentForm}
               showCrewDocumentForm={showCrewDocumentForm}
               editingCrewDocumentId={editingCrewDocumentId}
@@ -929,6 +1048,7 @@ export function Workspace({
               onAddLeg={addFlightLeg}
               onDeleteLeg={deleteFlightLeg}
               onSaveFlightLog={saveFlightLog}
+              crewOptions={crewOptions}
             />
           ) : null}
 

@@ -14,6 +14,8 @@ export type CrewDocumentForm = {
   documentNumber: string;
   issuer: string;
   expiresOn: string;
+  effectiveOn: string;
+  privateNote: string;
   status: string;
 };
 
@@ -44,7 +46,14 @@ type Props = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: (id: string) => void;
   onCreateAssignment: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
+  assignableFlights: { code: string; origin: string; destination: string; registration: string }[];
   onDeleteAssignment: (assignmentId: string) => void;
+  onPublishAssignment: (assignmentId: string) => void;
+  onRequestChange: (assignmentId: string, reason: string) => void;
+  onReviewChange: (requestId: string, decision: 'approve' | 'reject') => void;
+  onReviewDocument: (id: string, decision: 'accept' | 'reject') => void;
+  onExportPdf: (kind: 'profile' | 'schedule' | 'experience') => void;
+  onAddPrevious: (origin: string, minutes: string, asOf: string) => void;
   crewDocumentForm: CrewDocumentForm;
   showCrewDocumentForm: boolean;
   editingCrewDocumentId: string | null;
@@ -155,6 +164,13 @@ export function CrewPage({
   scheduleRows,
   onCreateAssignment,
   onDeleteAssignment,
+  onPublishAssignment,
+  onRequestChange,
+  onReviewChange,
+  onReviewDocument,
+  onExportPdf,
+  onAddPrevious,
+  assignableFlights,
   crewDocumentForm,
   showCrewDocumentForm,
   editingCrewDocumentId,
@@ -175,6 +191,7 @@ export function CrewPage({
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const [assignmentStart, setAssignmentStart] = useState('');
   const [assignmentEnd, setAssignmentEnd] = useState('');
+  const [flightCode, setFlightCode] = useState('');
 
   useEffect(() => {
     if (!assignmentOpen) return;
@@ -296,6 +313,13 @@ export function CrewPage({
             value={crewDocumentForm.issuer}
             onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, issuer: e.target.value })}
           />
+          <label htmlFor="crew-doc-effective">{copy.crew.effectiveOn}</label>
+          <input
+            id="crew-doc-effective"
+            type="date"
+            value={crewDocumentForm.effectiveOn}
+            onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, effectiveOn: e.target.value })}
+          />
           <label htmlFor="crew-doc-expires">{copy.crew.documentExpires}</label>
           <input
             id="crew-doc-expires"
@@ -303,6 +327,17 @@ export function CrewPage({
             value={crewDocumentForm.expiresOn}
             onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, expiresOn: e.target.value })}
           />
+          {crewDocumentForm.category === 'medical' ? (
+            <>
+              <label htmlFor="crew-doc-private">{copy.crew.privateNote}</label>
+              <textarea
+                id="crew-doc-private"
+                rows={2}
+                value={crewDocumentForm.privateNote}
+                onChange={(e) => onCrewDocumentFormChange({ ...crewDocumentForm, privateNote: e.target.value })}
+              />
+            </>
+          ) : null}
           <label htmlFor="crew-doc-status">{copy.columns.status}</label>
           <input
             id="crew-doc-status"
@@ -343,19 +378,22 @@ export function CrewPage({
             <option value="Unavailable">{copy.crew.activityUnavailable}</option>
           </select>
           <label htmlFor="assignment-flight-code">{copy.crew.flightCode}</label>
-          <input id="assignment-flight-code" name="flightCode" placeholder="HV1234" />
-          <div className="crew-assignment-route">
-            <div>
-              <label htmlFor="assignment-origin">{copy.crew.routeOrigin}</label>
-              <input id="assignment-origin" name="origin" placeholder="SVMI" maxLength={4} />
-            </div>
-            <div>
-              <label htmlFor="assignment-destination">{copy.crew.routeDestination}</label>
-              <input id="assignment-destination" name="destination" placeholder="SVVA" maxLength={4} />
-            </div>
-          </div>
-          <label htmlFor="assignment-aircraft">{copy.crew.aircraftRegistration}</label>
-          <input id="assignment-aircraft" name="aircraftRegistration" placeholder="YV3301" />
+          <select
+            id="assignment-flight-code"
+            name="flightCode"
+            value={flightCode}
+            onChange={(event) => setFlightCode(event.target.value)}
+          >
+            <option value="">{copy.crew.chooseFlight}</option>
+            {assignableFlights.map((flight) => (
+              <option key={flight.code} value={flight.code}>
+                {flight.code} {flight.origin}-{flight.destination} {flight.registration}
+              </option>
+            ))}
+          </select>
+          <input type="hidden" name="origin" value={assignableFlights.find((flight) => flight.code === flightCode)?.origin ?? ''} />
+          <input type="hidden" name="destination" value={assignableFlights.find((flight) => flight.code === flightCode)?.destination ?? ''} />
+          <input type="hidden" name="aircraftRegistration" value={assignableFlights.find((flight) => flight.code === flightCode)?.registration ?? ''} />
           <label htmlFor="assignment-start">{copy.crew.startsAt}</label>
           <input
             id="assignment-start"
@@ -423,6 +461,7 @@ export function CrewPage({
                 onAddDocument={onStartCreateCrewDocument}
                 onEditDocument={onStartEditCrewDocument}
                 onDeleteDocument={onDeleteCrewDocument}
+                onReviewDocument={onReviewDocument}
                 fileRows={fileRows}
                 onUploadFile={onUploadFile}
                 onDownloadFile={onDownloadFile}
@@ -444,11 +483,45 @@ export function CrewPage({
                 setAssignmentOpen(true);
               }}
               onDeleteAssignment={onDeleteAssignment}
+              onPublishAssignment={onPublishAssignment}
+              onRequestChange={onRequestChange}
               onSelectWorker={onSelect}
             />
           ) : null}
 
-          {tab === 'experience' ? <CrewExperiencePanel locale={locale} detail={detail} /> : null}
+          {tab === 'schedule' && detail && Array.isArray(detail.changeRequests) ? (
+            <ul>
+              {(detail.changeRequests as Record<string, unknown>[]).map((row) => (
+                <li key={String(row.id)}>
+                  {String(row.reason ?? '')} · {String(row.status ?? '')}
+                  {String(row.status) === 'requested' ? (
+                    <span className="actions">
+                      <button type="button" className="ghost btn-compact" onClick={() => onReviewChange(String(row.id), 'approve')}>
+                        {copy.crew.accept}
+                      </button>
+                      <button type="button" className="ghost btn-compact" onClick={() => onReviewChange(String(row.id), 'reject')}>
+                        {copy.crew.reject}
+                      </button>
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {tab === 'experience' ? (
+            <CrewExperiencePanel locale={locale} detail={detail} onExport={onExportPdf} onAddPrevious={onAddPrevious} />
+          ) : null}
+          {tab === 'data' && detail ? (
+            <div className="actions">
+              <button type="button" className="ghost btn-compact" onClick={() => onExportPdf('profile')}>
+                {copy.crew.exportPdf}
+              </button>
+              <button type="button" className="ghost btn-compact" onClick={() => onExportPdf('schedule')}>
+                {copy.tabs.crewSchedule}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

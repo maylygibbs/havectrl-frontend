@@ -14,6 +14,7 @@ export type RosterAssignment = {
   origin?: string | null;
   destination?: string | null;
   aircraft_registration?: string | null;
+  publication_status?: string | null;
 };
 
 export type DayColumn = {

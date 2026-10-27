@@ -19,6 +19,7 @@ type Props = {
   onAddDocument: (category: string) => void;
   onEditDocument: (row: DocRow) => void;
   onDeleteDocument: (id: string) => void;
+  onReviewDocument: (id: string, decision: 'accept' | 'reject') => void;
   fileRows: DocRow[];
   onUploadFile: (file: File) => void;
   onDownloadFile: (id: string, name: string) => void;
@@ -26,7 +27,7 @@ type Props = {
   onDeleteFile: (id: string) => void;
 };
 
-const DOC_CATEGORIES = ['language', 'travel', 'training', 'other'] as const;
+const DOC_CATEGORIES = ['license', 'instructor', 'medical', 'language', 'travel', 'uniform', 'training', 'other'] as const;
 
 export function CrewDataPanel({
   locale,
@@ -37,6 +38,7 @@ export function CrewDataPanel({
   onAddDocument,
   onEditDocument,
   onDeleteDocument,
+  onReviewDocument,
   fileRows,
   onUploadFile,
   onDownloadFile,
@@ -87,6 +89,7 @@ export function CrewDataPanel({
             fields={[
               [copy.crew.position, detail.position],
               [copy.crew.base, detail.base],
+              [copy.crew.team, detail.team],
               [copy.crew.accessRole, detail.access_role ?? '—'],
             ]}
           />
@@ -112,20 +115,44 @@ export function CrewDataPanel({
               {copy.crew.editMedical}
             </button>
           </div>
-          <FieldGrid fields={[[copy.crew.medicalExpires, detail.medical_expires]]} />
+          <FieldGrid
+            fields={[
+              [copy.crew.medicalExpires, detail.medical_expires],
+              [
+                copy.crew.medicalFit,
+                detail.medical_fit === null ? '—' : detail.medical_fit ? copy.crew.medicalFitYes : copy.crew.medicalFitNo,
+              ],
+            ]}
+          />
+        </CrewSection>
+
+        <CrewSection title={copy.crew.sections.uniform}>
+          <FieldGrid
+            fields={[
+              [copy.crew.shirt, detail.uniform_shirt],
+              [copy.crew.pants, detail.uniform_pants],
+              [copy.crew.shoes, detail.uniform_shoes],
+            ]}
+          />
         </CrewSection>
 
         {DOC_CATEGORIES.map((cat) => (
           <DocumentCategorySection
             key={cat}
             locale={locale}
-            sectionTitle={copy.crew.sections[cat === 'other' ? 'otherDocs' : cat]}
-            category={cat}
+            sectionTitle={
+              cat === 'license'
+                ? copy.crew.sections.licenses
+                : cat === 'other'
+                  ? copy.crew.sections.otherDocs
+                  : copy.crew.sections[cat]
+            }
             rows={documents.filter((d) => String(d.category) === cat)}
             onAdd={() => onAddDocument(cat)}
             onEdit={onEditDocument}
             onDelete={onDeleteDocument}
-            defaultOpen={cat === 'language'}
+            onReview={onReviewDocument}
+            defaultOpen={cat === 'license'}
           />
         ))}
 
@@ -161,20 +188,20 @@ export function CrewDataPanel({
 function DocumentCategorySection({
   locale,
   sectionTitle,
-  category,
   rows,
   onAdd,
   onEdit,
   onDelete,
+  onReview,
   defaultOpen,
 }: {
   locale: Locale;
   sectionTitle: string;
-  category: string;
   rows: DocRow[];
   onAdd: () => void;
   onEdit: (row: DocRow) => void;
   onDelete: (id: string) => void;
+  onReview: (id: string, decision: 'accept' | 'reject') => void;
   defaultOpen?: boolean;
 }) {
   const copy = t(locale);
@@ -196,7 +223,8 @@ function DocumentCategorySection({
                 <th>{copy.crew.documentNumber}</th>
                 <th>{copy.crew.issuer}</th>
                 <th>{copy.crew.documentExpires}</th>
-                <th>{copy.columns.status}</th>
+                <th>{copy.crew.review}</th>
+                <th>{copy.crew.validity}</th>
                 <th />
               </tr>
             </thead>
@@ -207,9 +235,20 @@ function DocumentCategorySection({
                   <td>{cellText(row.document_number)}</td>
                   <td>{cellText(row.issuer)}</td>
                   <td>{cellText(row.expires_on)}</td>
-                  <td>{cellText(row.status)}</td>
+                  <td>{cellText(row.review_status)}</td>
+                  <td>{cellText(row.validity)}</td>
                   <td>
                     <div className="actions">
+                      {String(row.review_status) === 'pending_review' ? (
+                        <>
+                          <button type="button" className="ghost btn-compact" onClick={() => onReview(String(row.id), 'accept')}>
+                            {copy.crew.accept}
+                          </button>
+                          <button type="button" className="ghost btn-compact" onClick={() => onReview(String(row.id), 'reject')}>
+                            {copy.crew.reject}
+                          </button>
+                        </>
+                      ) : null}
                       <button type="button" className="ghost btn-compact" onClick={() => onEdit(row)}>
                         {copy.aircraftForm.editDocument}
                       </button>

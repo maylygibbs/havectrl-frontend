@@ -27,6 +27,8 @@ type Props = {
   scheduleRows: Record<string, unknown>[];
   onAddAssignment: (workerId: string | null) => void;
   onDeleteAssignment: (id: string) => void;
+  onPublishAssignment: (id: string) => void;
+  onRequestChange: (id: string, reason: string) => void;
   onSelectWorker: (id: string) => void;
 };
 
@@ -36,8 +38,11 @@ export function CrewSchedulePanel({
   scheduleRows,
   onAddAssignment,
   onDeleteAssignment,
+  onPublishAssignment,
+  onRequestChange,
   onSelectWorker,
 }: Props) {
+  const [changeReason, setChangeReason] = useState('');
   const copy = t(locale);
   const today = useMemo(() => new Date(), []);
   const [view, setView] = useState<'day' | 'week' | 'month'>('month');
@@ -65,13 +70,20 @@ export function CrewSchedulePanel({
             origin: row.origin as string | null | undefined,
             destination: row.destination as string | null | undefined,
             aircraft_registration: row.aircraft_registration as string | null | undefined,
+            publication_status: String(row.publication_status ?? ''),
             position: String(row.position ?? ''),
           }) satisfies RosterAssignment,
       ),
     [scheduleRows],
   );
 
-  const anchor = useMemo(() => new Date(Date.UTC(year, monthIndex, 15)), [year, monthIndex]);
+  const anchor = useMemo(() => {
+    const now = new Date();
+    if (year === now.getFullYear() && monthIndex === now.getMonth()) {
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+    return new Date(year, monthIndex, 1);
+  }, [year, monthIndex]);
 
   const columns = useMemo(() => {
     if (view === 'day') return dayColumns(anchor, today);
@@ -263,14 +275,37 @@ export function CrewSchedulePanel({
         />
       </div>
 
-      {selected && cellKind(selected.activity) !== 'flight' ? (
+      {selected ? (
         <div className="crew-roster-selection-actions panel-light">
           <p>
-            {cellText(selected.full_name)} · {cellText(selected.activity)} · {cellText(selected.starts_at)}
+            {cellText(selected.full_name)} · {cellText(selected.activity)} · {cellText(selected.starts_at)} ·{' '}
+            {copy.crew.publication}: {cellText(selected.publication_status)}
           </p>
-          <button type="button" className="ghost danger btn-compact" onClick={() => onDeleteAssignment(selected.id)}>
-            {copy.softDelete}
-          </button>
+          <div className="actions">
+            <button type="button" className="btn-compact" onClick={() => onPublishAssignment(selected.id)}>
+              {copy.crew.publish}
+            </button>
+            <input
+              value={changeReason}
+              onChange={(event) => setChangeReason(event.target.value)}
+              placeholder={copy.crew.changeReason}
+              aria-label={copy.crew.changeReason}
+            />
+            <button
+              type="button"
+              className="ghost btn-compact"
+              onClick={() => {
+                if (!changeReason.trim()) return;
+                onRequestChange(selected.id, changeReason.trim());
+                setChangeReason('');
+              }}
+            >
+              {copy.crew.requestChange}
+            </button>
+            <button type="button" className="ghost danger btn-compact" onClick={() => onDeleteAssignment(selected.id)}>
+              {copy.softDelete}
+            </button>
+          </div>
         </div>
       ) : null}
     </div>
