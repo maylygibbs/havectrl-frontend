@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { api, downloadAuthorized, fetchStoredFileBlob, Branding, SessionUser, uploadFile } from './api';
 import { Locale, t } from './i18n/catalog';
 import { HomeData, HomePage } from './HomePage';
@@ -114,6 +114,8 @@ export function Workspace({
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
   const [notice, setNotice] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<WorkerForm>(emptyWorker);
@@ -145,6 +147,22 @@ export function Workspace({
     if (allowed.some((id) => id === view)) return;
     setView(allowed[0] ?? 'home');
   }, [modules, view, visibleMain, canSettings]);
+
+  useEffect(() => {
+    if (!accountOpen) return;
+    function closeOnOutside(event: MouseEvent) {
+      if (!accountRef.current?.contains(event.target as Node)) setAccountOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setAccountOpen(false);
+    }
+    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [accountOpen]);
 
   useEffect(() => {
     let stop = false;
@@ -869,11 +887,7 @@ export function Workspace({
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <img className="logo logo-sm" src="/logo-havectrl.png" alt="" />
-          <div>
-            <p className="brand-name">HAVECTRL</p>
-            <p className="brand-sub">Aviation Operations Platform</p>
-          </div>
+          <img className="sidebar-logo" src="/brand/logo-transparent.png" alt="HAVECTRL" />
         </div>
         <nav className="sidebar-nav" aria-label="Modules">
           {visibleMain.map((id) => (
@@ -889,8 +903,8 @@ export function Workspace({
             </button>
           ))}
         </nav>
-        <div className="sidebar-foot">
-          {canSettings ? (
+        {canSettings ? (
+          <div className="sidebar-foot">
             <button
               type="button"
               className={view === 'settings' ? 'side-link on' : 'side-link'}
@@ -899,15 +913,8 @@ export function Workspace({
               <NavIcon id="settings" />
               <span>{copy.modules.settings}</span>
             </button>
-          ) : null}
-          <div className="side-user">
-            <span className="avatar">{initials || 'HC'}</span>
-            <div>
-              <strong>{user.name}</strong>
-              <p>{user.profile || tenant.name}</p>
-            </div>
           </div>
-        </div>
+        ) : null}
       </aside>
 
       <div className="main-pane">
@@ -928,9 +935,38 @@ export function Workspace({
               <option value="en">{copy.english}</option>
               <option value="es">{copy.spanish}</option>
             </select>
-            <button type="button" className="ghost" onClick={onLogout}>
-              {copy.logout}
-            </button>
+            <div className="account-menu" ref={accountRef}>
+              <button
+                type="button"
+                className="account-trigger"
+                aria-expanded={accountOpen}
+                aria-haspopup="menu"
+                aria-label={user.name}
+                onClick={() => setAccountOpen((open) => !open)}
+              >
+                <span className="session-avatar" aria-hidden="true">
+                  {initials || 'HC'}
+                </span>
+                <svg className="account-chevron" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+              {accountOpen ? (
+                <div className="account-panel" role="menu">
+                  <p>{user.name}</p>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAccountOpen(false);
+                      onLogout();
+                    }}
+                  >
+                    {copy.logout}
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </header>
 

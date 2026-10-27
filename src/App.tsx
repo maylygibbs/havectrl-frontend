@@ -35,6 +35,34 @@ function resolveLocale(session: Session | null): Locale {
   return 'en';
 }
 
+function PasswordEye({ off }: { off: boolean }) {
+  const common = {
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true as const,
+  };
+  if (off) {
+    return (
+      <svg {...common}>
+        <path d="M3 3l18 18" />
+        <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+        <path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c5 0 9.3 3.1 11 7a11 11 0 0 1-2.6 3.5" />
+        <path d="M6.1 6.1C4.2 7.4 2.7 9.1 2 12c1.7 3.9 6 7 10 7 1.3 0 2.5-.2 3.6-.7" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 export function App() {
   const [domain, setDomain] = useState<DomainContext | null>(null);
   const [session, setSession] = useState<Session | null>(() => loadSession());
@@ -42,6 +70,7 @@ export function App() {
   const [locale, setLocale] = useState<Locale>(() => resolveLocale(loadSession()));
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   useEffect(() => {
     loadDomainConfig()
@@ -189,7 +218,24 @@ export function App() {
           <label htmlFor="email">{copy.email}</label>
           <input id="email" name="email" type="email" autoComplete="username" autoFocus required />
           <label htmlFor="password">{copy.password}</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" required />
+          <div className="password-field">
+            <input
+              id="password"
+              name="password"
+              type={passwordVisible ? 'text' : 'password'}
+              autoComplete="current-password"
+              required
+            />
+            <button
+              type="button"
+              className="password-toggle"
+              aria-pressed={passwordVisible}
+              aria-label={passwordVisible ? copy.hidePassword : copy.showPassword}
+              onClick={() => setPasswordVisible((visible) => !visible)}
+            >
+              <PasswordEye off={passwordVisible} />
+            </button>
+          </div>
           <button type="submit" disabled={submitting}>
             {submitting ? copy.entering : copy.enterAccount}
           </button>
