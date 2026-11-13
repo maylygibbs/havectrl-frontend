@@ -15,6 +15,7 @@ type Props = {
   detail: Record<string, unknown>;
   onEdit: () => void;
   onEditLicenses: () => void;
+  onEditMedical: () => void;
   onDeactivate: () => void;
   onAddDocument: (category: string) => void;
   onEditDocument: (row: DocRow) => void;
@@ -34,6 +35,7 @@ export function CrewDataPanel({
   detail,
   onEdit,
   onEditLicenses,
+  onEditMedical,
   onDeactivate,
   onAddDocument,
   onEditDocument,
@@ -74,68 +76,6 @@ export function CrewDataPanel({
       </header>
 
       <div className="crew-data-sections">
-        <CrewSection title={copy.crew.sections.personalInfo}>
-          <FieldGrid
-            fields={[
-              [copy.crew.fullName, detail.full_name],
-              [copy.crew.employeeCode, detail.employee_code],
-              [copy.crew.status, detail.status],
-            ]}
-          />
-        </CrewSection>
-
-        <CrewSection title={copy.crew.sections.employment}>
-          <FieldGrid
-            fields={[
-              [copy.crew.position, detail.position],
-              [copy.crew.base, detail.base],
-              [copy.crew.team, detail.team],
-              [copy.crew.accessRole, detail.access_role ?? '—'],
-            ]}
-          />
-        </CrewSection>
-
-        <CrewSection title={copy.crew.sections.licenses}>
-          <div className="crew-section-toolbar">
-            <button type="button" className="ghost btn-compact" onClick={onEditLicenses}>
-              {copy.crew.editLicenses}
-            </button>
-          </div>
-          <FieldGrid
-            fields={[
-              [copy.crew.licenseNumber, detail.license_number],
-              [copy.crew.licenseExpires, detail.license_expires],
-            ]}
-          />
-        </CrewSection>
-
-        <CrewSection title={copy.crew.sections.medical}>
-          <div className="crew-section-toolbar">
-            <button type="button" className="ghost btn-compact" onClick={onEditLicenses}>
-              {copy.crew.editMedical}
-            </button>
-          </div>
-          <FieldGrid
-            fields={[
-              [copy.crew.medicalExpires, detail.medical_expires],
-              [
-                copy.crew.medicalFit,
-                detail.medical_fit === null ? '—' : detail.medical_fit ? copy.crew.medicalFitYes : copy.crew.medicalFitNo,
-              ],
-            ]}
-          />
-        </CrewSection>
-
-        <CrewSection title={copy.crew.sections.uniform}>
-          <FieldGrid
-            fields={[
-              [copy.crew.shirt, detail.uniform_shirt],
-              [copy.crew.pants, detail.uniform_pants],
-              [copy.crew.shoes, detail.uniform_shoes],
-            ]}
-          />
-        </CrewSection>
-
         {DOC_CATEGORIES.map((cat) => (
           <DocumentCategorySection
             key={cat}
@@ -152,9 +92,72 @@ export function CrewDataPanel({
             onEdit={onEditDocument}
             onDelete={onDeleteDocument}
             onReview={onReviewDocument}
-            defaultOpen={cat === 'license'}
+            defaultOpen={cat === 'license' || cat === 'medical'}
+            summary={
+              cat === 'license' ? (
+                <FieldGrid
+                  fields={[
+                    [copy.crew.licenseNumber, detail.license_number],
+                    [copy.crew.licenseExpires, detail.license_expires],
+                  ]}
+                />
+              ) : cat === 'medical' ? (
+                <FieldGrid
+                  fields={[
+                    [copy.crew.medicalExpires, detail.medical_expires],
+                    [
+                      copy.crew.medicalFit,
+                      detail.medical_fit === null ? '—' : detail.medical_fit ? copy.crew.medicalFitYes : copy.crew.medicalFitNo,
+                    ],
+                  ]}
+                />
+              ) : null
+            }
+            extra={
+              cat === 'license' ? (
+                <button type="button" className="ghost btn-compact" onClick={onEditLicenses}>
+                  {copy.crew.editLicenses}
+                </button>
+              ) : cat === 'medical' ? (
+                <button type="button" className="ghost btn-compact" onClick={onEditMedical}>
+                  {copy.crew.editMedical}
+                </button>
+              ) : null
+            }
           />
         ))}
+
+        <CrewSection title={copy.crew.sections.personalInfo}>
+          <FieldGrid
+            fields={[
+              [copy.crew.fullName, detail.full_name],
+              [copy.crew.employeeCode, detail.employee_code],
+              [copy.email, detail.email],
+              [copy.crew.status, detail.status],
+            ]}
+          />
+        </CrewSection>
+
+        <CrewSection title={copy.crew.sections.employment}>
+          <FieldGrid
+            fields={[
+              [copy.crew.position, detail.position],
+              [copy.crew.base, detail.base],
+              [copy.crew.team, detail.team],
+              [copy.crew.accessRole, detail.access_role ?? '—'],
+            ]}
+          />
+        </CrewSection>
+
+        <CrewSection title={copy.crew.sections.uniform}>
+          <FieldGrid
+            fields={[
+              [copy.crew.shirt, detail.uniform_shirt],
+              [copy.crew.pants, detail.uniform_pants],
+              [copy.crew.shoes, detail.uniform_shoes],
+            ]}
+          />
+        </CrewSection>
 
         <CrewSection title={copy.files.attachments} defaultOpen={false}>
           <div className="module-toolbar">
@@ -194,6 +197,8 @@ function DocumentCategorySection({
   onDelete,
   onReview,
   defaultOpen,
+  summary,
+  extra,
 }: {
   locale: Locale;
   sectionTitle: string;
@@ -203,11 +208,15 @@ function DocumentCategorySection({
   onDelete: (id: string) => void;
   onReview: (id: string, decision: 'accept' | 'reject') => void;
   defaultOpen?: boolean;
+  summary?: ReactNode;
+  extra?: ReactNode;
 }) {
   const copy = t(locale);
   return (
     <CrewSection title={sectionTitle} defaultOpen={defaultOpen}>
+      {summary}
       <div className="crew-section-toolbar">
+        {extra}
         <button type="button" className="ghost btn-compact" onClick={onAdd}>
           {copy.crew.addDocument}
         </button>

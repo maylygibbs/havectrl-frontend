@@ -26,13 +26,47 @@ export type DayColumn = {
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
-export function cellKind(activity: string): ScheduleCellKind {
-  const a = activity.trim().toLowerCase();
-  if (a.includes('flight') || a.includes('duty')) return 'flight';
-  if (a.includes('train') || a.includes('formaci')) return 'training';
-  if (a.includes('work') || a.includes('trabajo')) return 'training';
-  if (a.includes('rest') || a.includes('off') || a.includes('libre') || a.includes('standby') || a.includes('guardia') || a.includes('unavail') || a.includes('indisp')) return 'off';
+export type ActivityFilterKey =
+  | 'flight'
+  | 'work'
+  | 'standby'
+  | 'training'
+  | 'rest'
+  | 'dayOff'
+  | 'absence'
+  | 'unavailable';
+
+export function activityFilterKey(activity: string): ActivityFilterKey {
+  const value = activity.trim().toLowerCase();
+  if (value.includes('flight') || value.includes('duty')) return 'flight';
+  if (value.includes('standby') || value.includes('guardia')) return 'standby';
+  if (value.includes('train') || value.includes('formaci')) return 'training';
+  if (value.includes('work') || value.includes('trabajo')) return 'work';
+  if (value.includes('day off') || value.includes('libre')) return 'dayOff';
+  if (value.includes('absence') || value.includes('ausenc')) return 'absence';
+  if (value.includes('unavail') || value.includes('indisp')) return 'unavailable';
+  if (value.includes('rest') || value.includes('descanso')) return 'rest';
   return 'flight';
+}
+
+export function cellKind(activity: string): ScheduleCellKind {
+  const key = activityFilterKey(activity);
+  if (key === 'flight') return 'flight';
+  if (key === 'training' || key === 'work') return 'training';
+  if (key === 'rest' || key === 'dayOff' || key === 'absence' || key === 'unavailable' || key === 'standby') return 'off';
+  return 'available';
+}
+
+/** Keeps the local clock time and moves the start onto `dayKey` (YYYY-MM-DD). */
+export function shiftAssignmentToDay(startsAt: string, endsAt: string, dayKey: string) {
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+  const [year, month, day] = dayKey.split('-').map(Number);
+  if (!year || !month || !day || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const nextStart = new Date(start);
+  nextStart.setFullYear(year, month - 1, day);
+  const nextEnd = new Date(nextStart.getTime() + (end.getTime() - start.getTime()));
+  return { startsAt: nextStart.toISOString(), endsAt: nextEnd.toISOString() };
 }
 
 /** Calendar day in the browser timezone (matches datetime-local and column headers). */
@@ -145,10 +179,14 @@ export function routeFromNotes(notes: string): { origin: string; destination: st
   return { origin: '—', destination: '—' };
 }
 
-export function cellLabels(kind: ScheduleCellKind, row: RosterAssignment | null): { line1: string; line2: string } {
+export function cellLabels(
+  kind: ScheduleCellKind,
+  row: RosterAssignment | null,
+  shorts: Record<string, string> = {},
+): { line1: string; line2: string } {
   if (!row || kind === 'available') return { line1: '—', line2: '' };
-  if (kind === 'off') return { line1: 'OFF', line2: '' };
-  if (kind === 'training') return { line1: 'TRG', line2: '' };
+  const key = activityFilterKey(row.activity);
+  if (key !== 'flight') return { line1: shorts[key] ?? '—', line2: '' };
   const code = String(row.flight_code ?? '').trim();
   const route = routeFromAssignment(row);
   if (route.origin !== '—') {

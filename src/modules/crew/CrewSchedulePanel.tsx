@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Locale, t } from '../../i18n/catalog';
+import { Autocomplete } from '../../ui/Autocomplete';
 import { cellText } from '../../ui/table';
 import { CrewFlightDetailPanel } from './CrewFlightDetailPanel';
 import {
+  type ActivityFilterKey,
+  activityFilterKey,
   assignmentForCell,
   cellKind,
   cellLabels,
@@ -21,26 +24,42 @@ type WorkerRow = {
   status: string;
 };
 
+const ACTIVITY_FILTERS: {
+  key: ActivityFilterKey;
+  label: 'activityFlight' | 'activityWork' | 'activityStandby' | 'activityDayOff' | 'activityRest' | 'activityTraining' | 'activityAbsence' | 'activityUnavailable';
+}[] = [
+  { key: 'flight', label: 'activityFlight' },
+  { key: 'work', label: 'activityWork' },
+  { key: 'standby', label: 'activityStandby' },
+  { key: 'dayOff', label: 'activityDayOff' },
+  { key: 'rest', label: 'activityRest' },
+  { key: 'training', label: 'activityTraining' },
+  { key: 'absence', label: 'activityAbsence' },
+  { key: 'unavailable', label: 'activityUnavailable' },
+];
+
 type Props = {
   locale: Locale;
   crewRows: WorkerRow[];
   scheduleRows: Record<string, unknown>[];
-  onAddAssignment: (workerId: string | null) => void;
+  onCreateAt: (workerId: string, dayKey: string) => void;
+  onEdit: (row: RosterAssignment) => void;
+  onMove: (assignmentId: string, dayKey: string) => void;
   onDeleteAssignment: (id: string) => void;
   onPublishAssignment: (id: string) => void;
   onRequestChange: (id: string, reason: string) => void;
-  onSelectWorker: (id: string) => void;
 };
 
 export function CrewSchedulePanel({
   locale,
   crewRows,
   scheduleRows,
-  onAddAssignment,
+  onCreateAt,
+  onEdit,
+  onMove,
   onDeleteAssignment,
   onPublishAssignment,
   onRequestChange,
-  onSelectWorker,
 }: Props) {
   const [changeReason, setChangeReason] = useState('');
   const copy = t(locale);
@@ -49,9 +68,12 @@ export function CrewSchedulePanel({
   const [year, setYear] = useState(today.getFullYear());
   const [monthIndex, setMonthIndex] = useState(today.getMonth());
   const [crewFilter, setCrewFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [activityFilters, setActivityFilters] = useState<ActivityFilterKey[]>([]);
   const [selected, setSelected] = useState<RosterAssignment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ id: string; workerId: string } | null>(null);
+  const dragged = useRef(false);
 
   const assignments = useMemo(
     () =>
@@ -92,9 +114,10 @@ export function CrewSchedulePanel({
   }, [view, anchor, year, monthIndex, today]);
 
   const workers = useMemo(() => {
-    return crewRows.filter((w) => {
-      if (crewFilter && w.id !== crewFilter) return false;
-      if (statusFilter && w.status !== statusFilter) return false;
+    return crewRows.filter((worker) => {
+      if (crewFilter && worker.id !== crewFilter) return false;
+      if (statusFilter === 'active' && worker.status !== 'active') return false;
+      if (statusFilter === 'inactive' && worker.status === 'active') return false;
       return true;
     });
   }, [crewRows, crewFilter, statusFilter]);
@@ -114,25 +137,23 @@ export function CrewSchedulePanel({
   const crewOnFlight = useMemo(() => {
     if (!selected || cellKind(selected.activity) !== 'flight') return selected ? [selected] : [];
     const key = flightGroupKey(selected);
-    return assignments.filter((a) => flightGroupKey(a) === key && cellKind(a.activity) === 'flight');
+    return assignments.filter((item) => flightGroupKey(item) === key && cellKind(item.activity) === 'flight');
   }, [selected, assignments]);
 
   function shiftMonth(delta: number) {
-    const d = new Date(Date.UTC(year, monthIndex + delta, 1));
-    setYear(d.getUTCFullYear());
-    setMonthIndex(d.getUTCMonth());
+    const next = new Date(Date.UTC(year, monthIndex + delta, 1));
+    setYear(next.getUTCFullYear());
+    setMonthIndex(next.getUTCMonth());
   }
 
-  function handleCellClick(row: RosterAssignment | null, workerId: string) {
-    if (!row) return;
-    const kind = cellKind(row.activity);
-    if (kind === 'flight') {
-      setSelected(row);
-      onSelectWorker(workerId);
-      return;
-    }
-    setSelected(row);
-    onSelectWorker(workerId);
+  function toggleActivity(key: ActivityFilterKey) {
+    setActivityFilters((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
+  }
+
+  function shown(row: RosterAssignment | null) {
+    if (!row) return null;
+    if (activityFilters.length > 0 && !activityFilters.includes(activityFilterKey(row.activity))) return null;
+    return row;
   }
 
   return (
@@ -151,36 +172,50 @@ export function CrewSchedulePanel({
         </div>
 
         <div className="crew-view-toggle" role="group" aria-label={copy.crew.scheduleView}>
-          {(['day', 'week', 'month'] as const).map((v) => (
-            <button key={v} type="button" className={view === v ? 'crew-mode on' : 'crew-mode'} onClick={() => setView(v)}>
-              {v === 'day' ? copy.crew.viewDay : v === 'week' ? copy.crew.viewWeek : copy.crew.viewMonth}
+          {(['day', 'week', 'month'] as const).map((mode) => (
+            <button key={mode} type="button" className={view === mode ? 'crew-mode on' : 'crew-mode'} onClick={() => setView(mode)}>
+              {mode === 'day' ? copy.crew.viewDay : mode === 'week' ? copy.crew.viewWeek : copy.crew.viewMonth}
             </button>
           ))}
         </div>
 
         <div className="crew-schedule-filters">
-          <select
-            value={crewFilter}
-            onChange={(e) => {
-              const v = e.target.value;
-              setCrewFilter(v);
-              if (v) onSelectWorker(v);
-            }}
-            aria-label={copy.crew.allCrewMembers}
-          >
-            <option value="">{copy.crew.allCrewMembers}</option>
-            {crewRows.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.full_name}
-              </option>
-            ))}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={copy.crew.allStatuses}>
-            <option value="">{copy.crew.allStatuses}</option>
-            <option value="active">{copy.crew.statusActive}</option>
-            <option value="inactive">{copy.crew.statusInactive}</option>
-          </select>
+          <Autocomplete
+            id="schedule-person"
+            options={crewRows.map((worker) => ({ value: worker.id, label: worker.full_name }))}
+            values={crewFilter ? [crewFilter] : []}
+            placeholder={copy.crew.allCrewMembers}
+            emptyLabel={copy.empty}
+            onChange={(values) => setCrewFilter(values[0] ?? '')}
+          />
         </div>
+      </div>
+
+      <div className="magic-filters" role="group" aria-label={copy.crew.status}>
+        <button type="button" className={`magic-chip${statusFilter === 'all' ? ' is-on' : ''}`} onClick={() => setStatusFilter('all')}>
+          {copy.crew.filterAll}
+        </button>
+        <button type="button" className={`magic-chip${statusFilter === 'active' ? ' is-on' : ''}`} onClick={() => setStatusFilter('active')}>
+          {copy.crew.filterActive}
+        </button>
+        <button type="button" className={`magic-chip${statusFilter === 'inactive' ? ' is-on' : ''}`} onClick={() => setStatusFilter('inactive')}>
+          {copy.crew.filterInactive}
+        </button>
+      </div>
+      <div className="magic-filters crew-activity-filters" role="group" aria-label={copy.crew.activity}>
+        <button type="button" className={`magic-chip${activityFilters.length === 0 ? ' is-on' : ''}`} onClick={() => setActivityFilters([])}>
+          {copy.crew.filterAll}
+        </button>
+        {ACTIVITY_FILTERS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={`magic-chip${activityFilters.includes(item.key) ? ' is-on' : ''}`}
+            onClick={() => toggleActivity(item.key)}
+          >
+            {copy.crew[item.label]}
+          </button>
+        ))}
       </div>
 
       <div className="crew-roster-layout">
@@ -220,20 +255,53 @@ export function CrewSchedulePanel({
                         </div>
                       </td>
                       {columns.map((col) => {
-                        const row = assignmentForCell(assignments, worker.id, col.key);
+                        const stored = assignmentForCell(assignments, worker.id, col.key);
+                        const row = shown(stored);
+                        const hidden = Boolean(stored && !row);
                         const kind = row ? cellKind(row.activity) : 'available';
-                        const labels = cellLabels(kind, row);
+                        const labels = cellLabels(kind, row, copy.crew.activityShort);
                         const isSelected = selected?.id === row?.id;
                         return (
                           <td key={col.key} className={col.isToday ? 'crew-roster-td is-today' : 'crew-roster-td'}>
                             <button
                               type="button"
-                              className={`crew-roster-cell kind-${kind}${isSelected ? ' is-selected' : ''}`}
-                              disabled={!row}
-                              onClick={() => handleCellClick(row, worker.id)}
+                              draggable={Boolean(row)}
+                              disabled={hidden}
+                              className={`crew-roster-cell kind-${kind}${isSelected ? ' is-selected' : ''}${hidden ? ' is-filtered' : ''}`}
+                              onClick={() => {
+                                if (dragged.current) {
+                                  dragged.current = false;
+                                  return;
+                                }
+                                if (row) {
+                                  setSelected(row);
+                                  onEdit(row);
+                                  return;
+                                }
+                                if (!hidden) onCreateAt(worker.id, col.key);
+                              }}
+                              onDragStart={() => {
+                                if (!row) return;
+                                dragged.current = true;
+                                dragRef.current = { id: row.id, workerId: worker.id };
+                              }}
+                              onDragEnd={() => {
+                                dragRef.current = null;
+                              }}
+                              onDragOver={(event) => {
+                                const drag = dragRef.current;
+                                if (drag && drag.workerId === worker.id && !stored) event.preventDefault();
+                              }}
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                const drag = dragRef.current;
+                                dragRef.current = null;
+                                if (!drag || drag.workerId !== worker.id || stored) return;
+                                onMove(drag.id, col.key);
+                              }}
                             >
-                              <span>{labels.line1}</span>
-                              {labels.line2 ? <span className="crew-roster-cell-sub">{labels.line2}</span> : null}
+                              <span>{hidden ? '·' : labels.line1}</span>
+                              {!hidden && labels.line2 ? <span className="crew-roster-cell-sub">{labels.line2}</span> : null}
                             </button>
                           </td>
                         );
@@ -266,10 +334,7 @@ export function CrewSchedulePanel({
           assignment={selected && cellKind(selected.activity) === 'flight' ? selected : null}
           crewOnFlight={crewOnFlight}
           onEdit={() => {
-            if (selected) {
-              onSelectWorker(selected.worker_id);
-              onAddAssignment(selected.worker_id);
-            }
+            if (selected) onEdit(selected);
           }}
           onClear={() => setSelected(null)}
         />
@@ -282,6 +347,9 @@ export function CrewSchedulePanel({
             {copy.crew.publication}: {cellText(selected.publication_status)}
           </p>
           <div className="actions">
+            <button type="button" className="btn-compact" onClick={() => onEdit(selected)}>
+              {copy.crew.editAssignment}
+            </button>
             <button type="button" className="btn-compact" onClick={() => onPublishAssignment(selected.id)}>
               {copy.crew.publish}
             </button>

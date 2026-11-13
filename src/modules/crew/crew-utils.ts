@@ -25,6 +25,14 @@ export function toDatetimeLocalValue(d: Date): string {
 }
 
 /** Default start ≈ next whole hour; end +2 h (Schedule modal). */
+export function assignmentRangeOnDay(dayKey: string): { start: string; end: string } {
+  const [year, month, day] = dayKey.split('-').map(Number);
+  const start = new Date(year, (month || 1) - 1, day || 1, 8, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(end.getHours() + 2);
+  return { start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end) };
+}
+
 export function defaultAssignmentRange(): { start: string; end: string } {
   const start = new Date();
   start.setSeconds(0, 0);

@@ -3,6 +3,7 @@ import { Locale, t } from '../i18n/catalog';
 import { DataPanel, ModuleHero, ModuleTabs } from '../ui/ModuleChrome';
 import { Modal } from '../ui/Modal';
 import { FlightDetailPanel } from './FlightDetailPanel';
+import { UnitConverterPanel } from './flights/UnitConverterPanel';
 import { cellText, DataTable } from '../ui/table';
 
 export type FlightForm = {
@@ -65,9 +66,7 @@ export function FlightsPage({
   crewOptions,
 }: Props) {
   const copy = t(locale);
-  const [tab, setTab] = useState<
-    'planning' | 'plan' | 'log' | 'wb' | 'tracking' | 'weather' | 'converter'
-  >('planning');
+  const [tab, setTab] = useState<'plan' | 'log' | 'wb' | 'converter'>('plan');
 
   return (
     <div className="module-page">
@@ -79,12 +78,9 @@ export function FlightsPage({
       />
       <ModuleTabs
         tabs={[
-          { id: 'planning', label: copy.tabs.flightPlanning },
           { id: 'plan', label: copy.tabs.flightPlan },
           { id: 'log', label: copy.tabs.dailyLog },
           { id: 'wb', label: copy.tabs.weightBalance },
-          { id: 'tracking', label: copy.tabs.flightTracking },
-          { id: 'weather', label: copy.tabs.weatherNotams },
           { id: 'converter', label: copy.tabs.unitConverter },
         ]}
         active={tab}
@@ -157,7 +153,7 @@ export function FlightsPage({
             onChange={(e) => onFlightFormChange({ ...flightForm, status: e.target.value })}
           />
           <div className="actions">
-            <button type="submit">{copy.create}</button>
+            <button type="submit">{copy.flightsForm.newFlight}</button>
             <button type="button" className="ghost" onClick={() => onShowFlightForm(false)}>
               {copy.cancel}
             </button>
@@ -187,14 +183,14 @@ export function FlightsPage({
         ) : null}
       </Modal>
 
-      {tab === 'planning' && (
+      {tab === 'plan' && (
         <>
           <div className="module-toolbar">
             <button type="button" onClick={onStartCreateFlight}>
               {copy.flightsForm.newFlight}
             </button>
           </div>
-          <DataPanel title={copy.tabs.flightPlanning}>
+          <DataPanel title={copy.tabs.flightPlan}>
             <DataTable
               rows={rows}
               columns={['code', 'registration', 'origin', 'destination', 'status', 'fpl_status', 'review_status']}
@@ -203,23 +199,6 @@ export function FlightsPage({
             />
           </DataPanel>
         </>
-      )}
-
-      {tab === 'tracking' ? (
-        <DataPanel title={copy.tabs.flightTracking}>
-          <p className="status">{copy.moduleSubs.iteration2Unavailable}</p>
-        </DataPanel>
-      ) : null}
-
-      {tab === 'plan' && (
-        <DataPanel title={copy.tabs.flightPlan}>
-          <DataTable
-            rows={rows}
-            columns={['code', 'origin', 'destination', 'fpl_status', 'status']}
-            locale={locale}
-            onOpen={onOpen}
-          />
-        </DataPanel>
       )}
 
       {tab === 'log' && (
@@ -235,17 +214,12 @@ export function FlightsPage({
 
       {tab === 'wb' ? (
         <DataPanel title={copy.tabs.weightBalance}>
-          <p className="status">{copy.moduleSubs.comingSoon}</p>
-        </DataPanel>
-      ) : null}
-      {tab === 'weather' ? (
-        <DataPanel title={copy.tabs.weatherNotams}>
-          <p className="status">{copy.moduleSubs.iteration2Unavailable}</p>
+          <p className="status">{copy.converter.weightAttach}</p>
         </DataPanel>
       ) : null}
       {tab === 'converter' ? (
         <DataPanel title={copy.tabs.unitConverter}>
-          <p className="status">{copy.moduleSubs.iteration2Unavailable}</p>
+          <UnitConverterPanel locale={locale} />
         </DataPanel>
       ) : null}
     </div>

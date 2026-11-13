@@ -22,6 +22,6 @@ Para negocio y QA, la **primera aceptación** del MVP es el hito **1A**, no la i
 
 1. Levantar backend y frontend (ver README del backend).  
 2. `http://demoa.localhost:5174` — `admin@demoa.local` / `havectrl-demo`.  
-3. Crew → Schedule: listar y crear una actividad; Data: abrir ficha con experiencia demo.  
+3. Crew → Data, Schedule y Experience, según `havectrl-backend/docs/producto/08-crew-iteracion-1.md`.  
 4. Aircraft: pestañas Documents / Discrepancies / Flight History con datos seed.  
 5. Piloto (`piloto@demoa.local`): no debe ver Ajustes ni conteo reservado de SMS en Home.

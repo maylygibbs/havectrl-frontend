@@ -1,12 +1,40 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import { Locale, t } from '../i18n/catalog';
+import { Autocomplete } from '../ui/Autocomplete';
 import { ModuleHero, ModuleTabs } from '../ui/ModuleChrome';
 import { Modal } from '../ui/Modal';
 import { CrewDataPanel } from './crew/CrewDataPanel';
 import { CrewDirectory } from './crew/CrewDirectory';
 import { CrewExperiencePanel } from './crew/CrewExperiencePanel';
 import { CrewSchedulePanel } from './crew/CrewSchedulePanel';
-import { defaultAssignmentRange, licenseAlert, toDatetimeLocalValue } from './crew/crew-utils';
+import { type RosterAssignment } from './crew/crew-schedule-roster';
+import { assignmentRangeOnDay, defaultAssignmentRange, licenseAlert, toDatetimeLocalValue } from './crew/crew-utils';
+
+export type AssignmentSave = {
+  workerIds: string[];
+  activity: string;
+  startsAt: string;
+  endsAt: string;
+  notes: string;
+  flightCode: string | null;
+  origin: string | null;
+  destination: string | null;
+  aircraftRegistration: string | null;
+};
+
+type AssignmentDraft = {
+  mode: 'create' | 'edit';
+  id: string | null;
+  lockedWorkerId: string | null;
+  lockedName: string;
+  dayLabel: string;
+  workerIds: string[];
+  activity: string;
+  flightCode: string;
+  startsAt: string;
+  endsAt: string;
+  notes: string;
+};
 
 export type CrewDocumentForm = {
   category: string;
@@ -19,11 +47,15 @@ export type CrewDocumentForm = {
   status: string;
 };
 
+export type WorkerFocus = 'identity' | 'license' | 'medical';
+
 export type WorkerForm = {
   employeeCode: string;
   fullName: string;
   position: string;
   base: string;
+  team: string;
+  email: string;
   status: string;
   licenseNumber: string;
   licenseExpires: string;
@@ -37,15 +69,18 @@ type Props = {
   detail: Record<string, unknown> | null;
   form: WorkerForm;
   showForm: boolean;
+  workerFocus: WorkerFocus;
   editingId: string | null;
   onSelect: (id: string) => void;
   onFormChange: (form: WorkerForm) => void;
   onShowForm: (show: boolean) => void;
   onStartCreate: () => void;
-  onStartEdit: (row: Record<string, unknown>) => void;
+  onStartEdit: (row: Record<string, unknown>, focus?: WorkerFocus) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: (id: string) => void;
-  onCreateAssignment: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
+  onCreateAssignment: (payload: AssignmentSave) => Promise<boolean>;
+  onUpdateAssignment: (id: string, payload: AssignmentSave) => Promise<boolean>;
+  onMoveAssignment: (id: string, dayKey: string) => Promise<void>;
   assignableFlights: { code: string; origin: string; destination: string; registration: string }[];
   onDeleteAssignment: (assignmentId: string) => void;
   onPublishAssignment: (assignmentId: string) => void;
@@ -73,72 +108,105 @@ type Props = {
 function WorkerFormFields({
   copy,
   form,
+  focus,
   editingId,
+  positions,
+  bases,
   onFormChange,
   onSubmit,
   onCancel,
 }: {
   copy: ReturnType<typeof t>;
   form: WorkerForm;
+  focus: WorkerFocus;
   editingId: string | null;
+  positions: string[];
+  bases: string[];
   onFormChange: (form: WorkerForm) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }) {
+  const teams = [
+    { value: 'operations', label: copy.crew.teamOperations },
+    { value: 'maintenance', label: copy.crew.teamMaintenance },
+    { value: 'cabin', label: copy.crew.teamCabin },
+  ];
   return (
     <form className="stack" onSubmit={onSubmit}>
-      <label htmlFor="employeeCode">{copy.crew.employeeCode}</label>
-      <input
-        id="employeeCode"
-        value={form.employeeCode}
-        onChange={(e) => onFormChange({ ...form, employeeCode: e.target.value })}
-        required
-      />
-      <label htmlFor="fullName">{copy.crew.fullName}</label>
-      <input
-        id="fullName"
-        value={form.fullName}
-        onChange={(e) => onFormChange({ ...form, fullName: e.target.value })}
-        required
-      />
-      <label htmlFor="position">{copy.crew.position}</label>
-      <input
-        id="position"
-        value={form.position}
-        onChange={(e) => onFormChange({ ...form, position: e.target.value })}
-        required
-      />
-      <label htmlFor="base">{copy.crew.base}</label>
-      <input
-        id="base"
-        value={form.base}
-        onChange={(e) => onFormChange({ ...form, base: e.target.value })}
-        required
-      />
-      <label htmlFor="status">{copy.crew.status}</label>
-      <input id="status" value={form.status} onChange={(e) => onFormChange({ ...form, status: e.target.value })} />
-      <label htmlFor="licenseNumber">{copy.crew.licenseNumber}</label>
-      <input
-        id="licenseNumber"
-        value={form.licenseNumber}
-        onChange={(e) => onFormChange({ ...form, licenseNumber: e.target.value })}
-      />
-      <label htmlFor="licenseExpires">{copy.crew.licenseExpires}</label>
-      <input
-        id="licenseExpires"
-        type="date"
-        value={form.licenseExpires}
-        onChange={(e) => onFormChange({ ...form, licenseExpires: e.target.value })}
-      />
-      <label htmlFor="medicalExpires">{copy.crew.medicalExpires}</label>
-      <input
-        id="medicalExpires"
-        type="date"
-        value={form.medicalExpires}
-        onChange={(e) => onFormChange({ ...form, medicalExpires: e.target.value })}
-      />
+      {focus === 'identity' ? (
+        <>
+          <label htmlFor="fullName">{copy.crew.fullName}</label>
+          <input id="fullName" value={form.fullName} onChange={(e) => onFormChange({ ...form, fullName: e.target.value })} required />
+          <label htmlFor="employeeCode">{copy.crew.employeeCode}</label>
+          <input id="employeeCode" value={form.employeeCode} onChange={(e) => onFormChange({ ...form, employeeCode: e.target.value })} required />
+          <label htmlFor="position">{copy.crew.position}</label>
+          <Autocomplete
+            id="position"
+            allowCustom
+            options={positions.map((value) => ({ value, label: value }))}
+            values={form.position ? [form.position] : []}
+            placeholder={copy.crew.position}
+            emptyLabel={copy.empty}
+            onChange={(values) => onFormChange({ ...form, position: values[0] ?? '' })}
+          />
+          <label htmlFor="base">{copy.crew.base}</label>
+          <Autocomplete
+            id="base"
+            allowCustom
+            options={bases.map((value) => ({ value, label: value }))}
+            values={form.base ? [form.base] : []}
+            placeholder={copy.crew.base}
+            emptyLabel={copy.empty}
+            onChange={(values) => onFormChange({ ...form, base: values[0] ?? '' })}
+          />
+          <span id="team-label">{copy.crew.team}</span>
+          <div className="magic-filters" role="group" aria-labelledby="team-label">
+            {teams.map((team) => (
+              <button
+                key={team.value}
+                type="button"
+                className={`magic-chip${form.team === team.value ? ' is-on' : ''}`}
+                onClick={() => onFormChange({ ...form, team: team.value })}
+              >
+                {team.label}
+              </button>
+            ))}
+          </div>
+          <label htmlFor="workerEmail">{copy.email}</label>
+          <input id="workerEmail" type="email" value={form.email} onChange={(e) => onFormChange({ ...form, email: e.target.value })} />
+          {editingId ? (
+            <>
+              <span id="status-label">{copy.crew.status}</span>
+              <div className="magic-filters" role="group" aria-labelledby="status-label">
+                <button type="button" className={`magic-chip${form.status === 'active' ? ' is-on' : ''}`} onClick={() => onFormChange({ ...form, status: 'active' })}>
+                  {copy.crew.filterActive}
+                </button>
+                <button type="button" className={`magic-chip${form.status === 'inactive' ? ' is-on' : ''}`} onClick={() => onFormChange({ ...form, status: 'inactive' })}>
+                  {copy.crew.filterInactive}
+                </button>
+              </div>
+            </>
+          ) : null}
+        </>
+      ) : null}
+      {focus === 'license' ? (
+        <>
+          <label htmlFor="licenseNumber">{copy.crew.licenseNumber}</label>
+          <input id="licenseNumber" value={form.licenseNumber} onChange={(e) => onFormChange({ ...form, licenseNumber: e.target.value })} />
+          <label htmlFor="licenseExpires">{copy.crew.licenseExpires}</label>
+          <input id="licenseExpires" type="date" value={form.licenseExpires} onChange={(e) => onFormChange({ ...form, licenseExpires: e.target.value })} />
+        </>
+      ) : null}
+      {focus === 'medical' ? (
+        <>
+          <label htmlFor="medicalExpires">{copy.crew.medicalExpires}</label>
+          <input id="medicalExpires" type="date" value={form.medicalExpires} onChange={(e) => onFormChange({ ...form, medicalExpires: e.target.value })} />
+        </>
+      ) : null}
       <div className="actions">
-        <button type="submit">{editingId ? copy.save : copy.create}</button>
+        <button type="submit" disabled={focus === 'identity' && (!form.position || !form.base || !form.team)}>
+          {focus === 'identity' && !editingId ? copy.crew.createWorker : copy.save}
+        </button>
         <button type="button" className="ghost" onClick={onCancel}>
           {copy.cancel}
         </button>
@@ -153,6 +221,7 @@ export function CrewPage({
   detail,
   form,
   showForm,
+  workerFocus,
   editingId,
   onSelect,
   onFormChange,
@@ -163,6 +232,8 @@ export function CrewPage({
   onDelete,
   scheduleRows,
   onCreateAssignment,
+  onUpdateAssignment,
+  onMoveAssignment,
   onDeleteAssignment,
   onPublishAssignment,
   onRequestChange,
@@ -188,24 +259,8 @@ export function CrewPage({
 }: Props) {
   const copy = t(locale);
   const [tab, setTab] = useState<'data' | 'schedule' | 'experience'>('data');
-  const [assignmentOpen, setAssignmentOpen] = useState(false);
-  const [assignmentStart, setAssignmentStart] = useState('');
-  const [assignmentEnd, setAssignmentEnd] = useState('');
-  const [flightCode, setFlightCode] = useState('');
-
-  useEffect(() => {
-    if (!assignmentOpen) return;
-    const { start, end } = defaultAssignmentRange();
-    setAssignmentStart(start);
-    setAssignmentEnd(end);
-  }, [assignmentOpen]);
-  const selectedId = detail ? String(detail.id) : rows[0] ? String(rows[0].id) : null;
-
-  useEffect(() => {
-    const first = rows[0];
-    if (!detail && first && 'full_name' in first) onSelect(String(first.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows.length, detail?.id]);
+  const [draft, setDraft] = useState<AssignmentDraft | null>(null);
+  const selectedId = detail ? String(detail.id) : null;
 
   const directoryItems = useMemo(
     () =>
@@ -232,9 +287,78 @@ export function CrewPage({
     [rows],
   );
 
+  function blankDraft(): AssignmentDraft {
+    const range = defaultAssignmentRange();
+    return {
+      mode: 'create',
+      id: null,
+      lockedWorkerId: null,
+      lockedName: '',
+      dayLabel: '',
+      workerIds: [],
+      activity: '',
+      flightCode: '',
+      startsAt: range.start,
+      endsAt: range.end,
+      notes: '',
+    };
+  }
+
+  function openOnDay(workerId: string, dayKey: string) {
+    const person = rows.find((row) => String(row.id) === workerId);
+    const range = assignmentRangeOnDay(dayKey);
+    setDraft({
+      mode: 'create',
+      id: null,
+      lockedWorkerId: workerId,
+      lockedName: person ? String(person.full_name ?? '') : '',
+      dayLabel: dayKey,
+      workerIds: [workerId],
+      activity: '',
+      flightCode: '',
+      startsAt: range.start,
+      endsAt: range.end,
+      notes: '',
+    });
+  }
+
+  function openEdit(row: RosterAssignment) {
+    const person = rows.find((item) => String(item.id) === row.worker_id);
+    setDraft({
+      mode: 'edit',
+      id: row.id,
+      lockedWorkerId: row.worker_id,
+      lockedName: person ? String(person.full_name ?? '') : '',
+      dayLabel: '',
+      workerIds: [row.worker_id],
+      activity: row.activity,
+      flightCode: row.flight_code ?? '',
+      startsAt: toDatetimeLocalValue(new Date(row.starts_at)),
+      endsAt: toDatetimeLocalValue(new Date(row.ends_at)),
+      notes: row.notes ?? '',
+    });
+  }
+
   async function submitAssignment(event: FormEvent<HTMLFormElement>) {
-    const ok = await onCreateAssignment(event);
-    if (ok) setAssignmentOpen(false);
+    event.preventDefault();
+    if (!draft) return;
+    const form = event.currentTarget;
+    const flight = assignableFlights.find((item) => item.code === draft.flightCode);
+    const payload: AssignmentSave = {
+      workerIds: draft.lockedWorkerId ? [draft.lockedWorkerId] : draft.workerIds,
+      activity: draft.activity,
+      startsAt: draft.startsAt,
+      endsAt: draft.endsAt,
+      notes: String(new FormData(form).get('notes') ?? draft.notes),
+      flightCode: draft.activity === 'Flight Duty' ? draft.flightCode || null : null,
+      origin: flight?.origin ?? null,
+      destination: flight?.destination ?? null,
+      aircraftRegistration: flight?.registration ?? null,
+    };
+    const ok = draft.mode === 'edit' && draft.id
+      ? await onUpdateAssignment(draft.id, payload)
+      : await onCreateAssignment(payload);
+    if (ok) setDraft(null);
   }
 
   return (
@@ -256,31 +380,33 @@ export function CrewPage({
           onChange={(id) => setTab(id as typeof tab)}
         />
         {tab === 'schedule' ? (
-          <button
-            type="button"
-            className="crew-assign-flight-btn"
-            onClick={() => {
-              const id = selectedId ?? (rows[0] ? String(rows[0].id) : null);
-              if (!id) return;
-              onSelect(id);
-              setAssignmentOpen(true);
-            }}
-          >
-            {copy.crew.assignFlight}
+          <button type="button" className="crew-assign-flight-btn" onClick={() => setDraft(blankDraft())}>
+            {copy.crew.assignEntry}
           </button>
         ) : null}
       </header>
 
       <Modal
         open={showForm}
-        title={editingId ? copy.crew.edit : copy.crew.newWorker}
+        title={
+          workerFocus === 'license'
+            ? copy.crew.editLicenses
+            : workerFocus === 'medical'
+              ? copy.crew.editMedical
+              : editingId
+                ? copy.crew.edit
+                : copy.crew.newWorker
+        }
         closeLabel={copy.cancel}
         onClose={() => onShowForm(false)}
       >
         <WorkerFormFields
           copy={copy}
           form={form}
+          focus={workerFocus}
           editingId={editingId}
+          positions={[...new Set(rows.map((row) => String(row.position ?? '')).filter(Boolean))]}
+          bases={[...new Set(rows.map((row) => String(row.base ?? '')).filter(Boolean))]}
           onFormChange={onFormChange}
           onSubmit={onSubmit}
           onCancel={() => onShowForm(false)}
@@ -354,87 +480,121 @@ export function CrewPage({
       </Modal>
 
       <Modal
-        open={assignmentOpen}
-        title={copy.crew.newAssignment}
+        open={draft !== null}
+        title={draft?.mode === 'edit' ? copy.crew.editAssignment : copy.crew.newAssignment}
         closeLabel={copy.cancel}
-        onClose={() => setAssignmentOpen(false)}
+        onClose={() => setDraft(null)}
       >
-        <form className="stack" onSubmit={submitAssignment}>
-          {detail ? (
-            <p className="status crew-assignment-for">
-              {copy.crew.assignmentForWorker}: <strong>{String(detail.full_name)}</strong>
-            </p>
-          ) : (
-            <p className="status">{copy.crew.assignmentNeedWorker}</p>
-          )}
-          <label htmlFor="assignment-activity">{copy.crew.assignmentActivity}</label>
-          <select id="assignment-activity" name="activity" required defaultValue="Flight Duty">
-            <option value="Flight Duty">{copy.crew.activityFlight}</option>
-            <option value="Work">{copy.crew.activityWork}</option>
-            <option value="Standby">{copy.crew.activityStandby}</option>
-            <option value="Training">{copy.crew.activityTraining}</option>
-            <option value="Rest">{copy.crew.activityRest}</option>
-            <option value="Day Off">{copy.crew.activityDayOff}</option>
-            <option value="Unavailable">{copy.crew.activityUnavailable}</option>
-          </select>
-          <label htmlFor="assignment-flight-code">{copy.crew.flightCode}</label>
-          <select
-            id="assignment-flight-code"
-            name="flightCode"
-            value={flightCode}
-            onChange={(event) => setFlightCode(event.target.value)}
-          >
-            <option value="">{copy.crew.chooseFlight}</option>
-            {assignableFlights.map((flight) => (
-              <option key={flight.code} value={flight.code}>
-                {flight.code} {flight.origin}-{flight.destination} {flight.registration}
-              </option>
-            ))}
-          </select>
-          <input type="hidden" name="origin" value={assignableFlights.find((flight) => flight.code === flightCode)?.origin ?? ''} />
-          <input type="hidden" name="destination" value={assignableFlights.find((flight) => flight.code === flightCode)?.destination ?? ''} />
-          <input type="hidden" name="aircraftRegistration" value={assignableFlights.find((flight) => flight.code === flightCode)?.registration ?? ''} />
-          <label htmlFor="assignment-start">{copy.crew.startsAt}</label>
-          <input
-            id="assignment-start"
-            name="startsAt"
-            type="datetime-local"
-            required
-            value={assignmentStart}
-            onChange={(e) => {
-              const value = e.target.value;
-              setAssignmentStart(value);
-              if (!value) return;
-              const start = new Date(value);
-              const end = new Date(assignmentEnd);
-              if (!assignmentEnd || Number.isNaN(end.getTime()) || end <= start) {
-                const bumped = new Date(start);
-                bumped.setHours(bumped.getHours() + 2);
-                setAssignmentEnd(toDatetimeLocalValue(bumped));
+        {draft ? (
+          <form className="stack" onSubmit={submitAssignment}>
+            {draft.lockedWorkerId ? (
+              <p className="status crew-assignment-for">
+                {copy.crew.assignmentForWorker}: <strong>{draft.lockedName}</strong>
+                {draft.dayLabel ? ` · ${draft.dayLabel}` : ''}
+              </p>
+            ) : (
+              <>
+                <label htmlFor="assignment-people">{copy.crew.assignmentPeople}</label>
+                <Autocomplete
+                  id="assignment-people"
+                  multiple
+                  options={rows.map((row) => ({ value: String(row.id), label: String(row.full_name ?? '') }))}
+                  values={draft.workerIds}
+                  placeholder={copy.crew.searchCrew}
+                  emptyLabel={copy.empty}
+                  onChange={(workerIds) => setDraft({ ...draft, workerIds })}
+                />
+              </>
+            )}
+            <label htmlFor="assignment-activity">{copy.crew.assignmentActivity}</label>
+            <Autocomplete
+              id="assignment-activity"
+              options={[
+                { value: 'Flight Duty', label: copy.crew.activityFlight },
+                { value: 'Work', label: copy.crew.activityWork },
+                { value: 'Standby', label: copy.crew.activityStandby },
+                { value: 'Training', label: copy.crew.activityTraining },
+                { value: 'Rest', label: copy.crew.activityRest },
+                { value: 'Day Off', label: copy.crew.activityDayOff },
+                { value: 'Absence', label: copy.crew.activityAbsence },
+                { value: 'Unavailable', label: copy.crew.activityUnavailable },
+              ]}
+              values={draft.activity ? [draft.activity] : []}
+              placeholder={copy.crew.searchActivity}
+              emptyLabel={copy.empty}
+              onChange={(values) =>
+                setDraft({
+                  ...draft,
+                  activity: values[0] ?? '',
+                  flightCode: values[0] === 'Flight Duty' ? draft.flightCode : '',
+                })
               }
-            }}
-          />
-          <label htmlFor="assignment-end">{copy.crew.endsAt}</label>
-          <input
-            id="assignment-end"
-            name="endsAt"
-            type="datetime-local"
-            required
-            value={assignmentEnd}
-            min={assignmentStart || undefined}
-            onChange={(e) => setAssignmentEnd(e.target.value)}
-          />
-          <label htmlFor="assignment-notes">{copy.crew.notes}</label>
-          <input id="assignment-notes" name="notes" placeholder={copy.crew.assignmentNotesHint} />
-          <div className="actions">
-            <button type="submit" disabled={!detail?.id}>
-              {copy.create}
-            </button>
-            <button type="button" className="ghost" onClick={() => setAssignmentOpen(false)}>
-              {copy.cancel}
-            </button>
-          </div>
-        </form>
+            />
+            {draft.activity === 'Flight Duty' ? (
+              <>
+                <label htmlFor="assignment-flight-code">{copy.crew.flightCode}</label>
+                <Autocomplete
+                  id="assignment-flight-code"
+                  options={assignableFlights.map((flight) => ({
+                    value: flight.code,
+                    label: `${flight.code} ${flight.origin}-${flight.destination} ${flight.registration}`,
+                  }))}
+                  values={draft.flightCode ? [draft.flightCode] : []}
+                  placeholder={copy.crew.searchFlight}
+                  emptyLabel={copy.empty}
+                  onChange={(values) => setDraft({ ...draft, flightCode: values[0] ?? '' })}
+                />
+              </>
+            ) : null}
+            <label htmlFor="assignment-start">{copy.crew.startsAt}</label>
+            <input
+              id="assignment-start"
+              name="startsAt"
+              type="datetime-local"
+              required
+              value={draft.startsAt}
+              onChange={(event) => {
+                const value = event.target.value;
+                const start = new Date(value);
+                const end = new Date(draft.endsAt);
+                let endsAt = draft.endsAt;
+                if (value && (Number.isNaN(end.getTime()) || end <= start)) {
+                  const bumped = new Date(start);
+                  bumped.setHours(bumped.getHours() + 2);
+                  endsAt = toDatetimeLocalValue(bumped);
+                }
+                setDraft({ ...draft, startsAt: value, endsAt });
+              }}
+            />
+            <label htmlFor="assignment-end">{copy.crew.endsAt}</label>
+            <input
+              id="assignment-end"
+              name="endsAt"
+              type="datetime-local"
+              required
+              value={draft.endsAt}
+              min={draft.startsAt || undefined}
+              onChange={(event) => setDraft({ ...draft, endsAt: event.target.value })}
+            />
+            <label htmlFor="assignment-notes">{copy.crew.notes}</label>
+            <input id="assignment-notes" name="notes" defaultValue={draft.notes} placeholder={copy.crew.assignmentNotesHint} />
+            <div className="actions">
+              <button
+                type="submit"
+                disabled={
+                  (!draft.lockedWorkerId && draft.workerIds.length === 0) ||
+                  !draft.activity ||
+                  (draft.activity === 'Flight Duty' && !draft.flightCode)
+                }
+              >
+                {copy.save}
+              </button>
+              <button type="button" className="ghost" onClick={() => setDraft(null)}>
+                {copy.cancel}
+              </button>
+            </div>
+          </form>
+        ) : null}
       </Modal>
 
       <div className={tab === 'schedule' ? 'crew-shell crew-shell-roster' : 'crew-shell split-layout'}>
@@ -455,8 +615,9 @@ export function CrewPage({
               <CrewDataPanel
                 locale={locale}
                 detail={detail}
-                onEdit={() => onStartEdit(detail)}
-                onEditLicenses={() => onStartEdit(detail)}
+                onEdit={() => onStartEdit(detail, 'identity')}
+                onEditLicenses={() => onStartEdit(detail, 'license')}
+                onEditMedical={() => onStartEdit(detail, 'medical')}
                 onDeactivate={() => onDelete(String(detail.id))}
                 onAddDocument={onStartCreateCrewDocument}
                 onEditDocument={onStartEditCrewDocument}
@@ -478,14 +639,12 @@ export function CrewPage({
               locale={locale}
               crewRows={crewRows}
               scheduleRows={scheduleRows}
-              onAddAssignment={(workerId) => {
-                if (workerId) onSelect(workerId);
-                setAssignmentOpen(true);
-              }}
+              onCreateAt={openOnDay}
+              onEdit={openEdit}
+              onMove={onMoveAssignment}
               onDeleteAssignment={onDeleteAssignment}
               onPublishAssignment={onPublishAssignment}
               onRequestChange={onRequestChange}
-              onSelectWorker={onSelect}
             />
           ) : null}
 

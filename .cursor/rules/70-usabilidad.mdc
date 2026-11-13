@@ -1,0 +1,10 @@
+---
+description: Al implementar un módulo, la pantalla coincide con la tarea y no pide clics de más.
+alwaysApply: true
+---
+
+# Usabilidad
+
+Detalle: `docs/reglas/08-usabilidad.md` y la regla 11 de `docs/REGLAS_DE_ORO.md`.
+
+Lee el producto antes de implementar. El título, el botón y el formulario dicen la misma tarea. Entrar a una vista no selecciona a la primera persona. Un alta nueva abre el formulario vacío.

@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node src/i18n/catalog.spec.mjs"
+    "test": "node src/i18n/catalog.spec.mjs && node --experimental-strip-types src/modules/flights/unit-convert.spec.mjs"
   },
   "dependencies": {
     "react": "^19.1.1",

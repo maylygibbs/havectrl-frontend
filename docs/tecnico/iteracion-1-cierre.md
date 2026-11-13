@@ -33,9 +33,7 @@ Las **APIs externas** (mapas, ADS-B, clima, Lido, etc.) son **Iteración 2**; no
 
 ### Crew
 
-- [ ] Data: CRUD + soft delete + ficha (assignments, experience demo)
-- [ ] Schedule: listado global + alta/baja manual de assignments
-- [ ] Experience: lectura aceptada como demo hasta LOG 1B (o derivación mínima documentada)
+- [ ] Data, Schedule manual y Experience. Alcance: `havectrl-backend/docs/producto/08-crew-iteracion-1.md`
 
 ### Aircraft
 

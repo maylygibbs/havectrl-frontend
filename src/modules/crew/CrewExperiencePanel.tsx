@@ -20,8 +20,8 @@ type Props = {
   onAddPrevious: (origin: string, minutes: string, asOf: string) => void;
 };
 
-function minutes(value: number) {
-  return `${value} min`;
+function hoursLabel(value: number) {
+  return `${(value / 60).toFixed(1)} h`;
 }
 
 export function CrewExperiencePanel({ locale, detail, onExport, onAddPrevious }: Props) {
@@ -48,19 +48,19 @@ export function CrewExperiencePanel({ locale, detail, onExport, onAddPrevious }:
       <header className="crew-experience-summary panel-light">
         <div>
           <p className="muted-label">{copy.crew.flightMinutes}</p>
-          <p className="crew-exp-total">{minutes(report.flightMinutes)}</p>
+          <p className="crew-exp-total">{hoursLabel(report.flightMinutes)}</p>
         </div>
         <div>
           <p className="muted-label">{copy.crew.blockMinutes}</p>
-          <p>{minutes(report.blockMinutes)}</p>
+          <p>{hoursLabel(report.blockMinutes)}</p>
         </div>
         <div>
           <p className="muted-label">{copy.crew.creditedMinutes}</p>
-          <p>{minutes(report.creditedMinutes)}</p>
+          <p>{hoursLabel(report.creditedMinutes)}</p>
         </div>
         <div>
           <p className="muted-label">{copy.crew.simulatorMinutes}</p>
-          <p>{minutes(report.simulatorMinutes)}</p>
+          <p>{hoursLabel(report.simulatorMinutes)}</p>
         </div>
       </header>
       <div className="actions">
@@ -83,8 +83,8 @@ export function CrewExperiencePanel({ locale, detail, onExport, onAddPrevious }:
               {report.windows.map((row) => (
                 <tr key={row.months}>
                   <td>{windowLabel(row.months)}</td>
-                  <td>{minutes(row.flightMinutes)}</td>
-                  <td>{minutes(row.simulatorMinutes)}</td>
+                  <td>{hoursLabel(row.flightMinutes)}</td>
+                  <td>{hoursLabel(row.simulatorMinutes)}</td>
                 </tr>
               ))}
             </tbody>
@@ -98,7 +98,9 @@ export function CrewExperiencePanel({ locale, detail, onExport, onAddPrevious }:
             event.preventDefault();
             const form = event.currentTarget;
             const data = new FormData(form);
-            onAddPrevious(String(data.get('origin') ?? ''), String(data.get('minutes') ?? ''), String(data.get('asOf') ?? ''));
+            const hours = Number(data.get('hours') ?? '');
+            const minutes = Number.isFinite(hours) ? String(Math.round(hours * 60)) : '';
+            onAddPrevious(String(data.get('origin') ?? ''), minutes, String(data.get('asOf') ?? ''));
             form.reset();
           }}
         >
@@ -107,14 +109,14 @@ export function CrewExperiencePanel({ locale, detail, onExport, onAddPrevious }:
             <input name="origin" required />
           </label>
           <label>
-            {copy.crew.flightMinutes}
-            <input name="minutes" type="number" min="0" required />
+            {copy.crew.experienceHours}
+            <input name="hours" type="number" min="0" step="0.1" required />
           </label>
           <label>
             {copy.crew.effectiveOn}
             <input name="asOf" type="date" />
           </label>
-          <button type="submit">{copy.crew.addDocument}</button>
+          <button type="submit">{copy.crew.previousExperience}</button>
         </form>
         {previous.length === 0 ? (
           <p className="status">{copy.empty}</p>
@@ -122,7 +124,7 @@ export function CrewExperiencePanel({ locale, detail, onExport, onAddPrevious }:
           <ul>
             {previous.map((row) => (
               <li key={String(row.id)}>
-                {cellText(row.origin)} · {cellText(row.flight_minutes)} min · {cellText(row.as_of)} · {cellText(row.review_status)}
+                {cellText(row.origin)} · {hoursLabel(Number(row.flight_minutes ?? 0))} · {cellText(row.as_of) || '—'} · {cellText(row.review_status)}
               </li>
             ))}
           </ul>

@@ -12,3 +12,4 @@ Aplican a todo PR de este repo. El detalle está en `docs/reglas/`. No copies es
 8. **Docs de reglas solo en `docs/`.** La ley de producto sigue en `../havectrl-backend/docs/producto/`.
 9. **Nada de push directo a `main`.** El merge lo hace una persona.
 10. **No cerrar dudas de producto aquí.** Si el manual y el resumen chocan, manda `../havectrl-backend/docs/producto/04-apis-e-iteraciones.md`. Si la duda sigue abierta, manda `../havectrl-backend/docs/producto/05-dudas.md`.
+11. **La pantalla coincide con la tarea.** Antes de implementar un módulo se lee el producto y se sube el criterio de uso: sin selección escondida, sin formulario sucio, sin un clic de más. Detalle: `docs/reglas/08-usabilidad.md`.

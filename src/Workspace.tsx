@@ -2,9 +2,10 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { api, downloadAuthorized, fetchStoredFileBlob, Branding, SessionUser, uploadFile } from './api';
 import { Locale, t } from './i18n/catalog';
 import { HomeData, HomePage } from './HomePage';
-import { AircraftDocumentForm, AircraftPage } from './modules/AircraftPage';
+import { AircraftDocumentForm, AircraftForm, AircraftPage } from './modules/AircraftPage';
 import { CommunicationPage } from './modules/CommunicationPage';
-import { CrewDocumentForm, CrewPage, WorkerForm } from './modules/CrewPage';
+import { type AssignmentSave, CrewDocumentForm, CrewPage, type WorkerFocus, WorkerForm } from './modules/CrewPage';
+import { dayKeyLocal, shiftAssignmentToDay } from './modules/crew/crew-schedule-roster';
 import { FlightForm, FlightsPage } from './modules/FlightsPage';
 import { LibraryPage } from './modules/LibraryPage';
 import { MaintenancePage } from './modules/MaintenancePage';
@@ -42,8 +43,18 @@ const MAIN_NAV: ModuleId[] = [
 
 const emptyDocument = (): AircraftDocumentForm => ({
   title: '',
-  status: 'current',
+  status: 'valid',
   expiresOn: '',
+});
+
+const emptyAircraft = (): AircraftForm => ({
+  registration: '',
+  model: '',
+  serialNumber: '',
+  base: '',
+  technicalStatus: 'unknown',
+  airframeHours: '',
+  airframeCycles: '',
 });
 
 const emptyFlight = (): FlightForm => ({
@@ -72,6 +83,8 @@ const emptyWorker = (): WorkerForm => ({
   fullName: '',
   position: '',
   base: '',
+  team: 'operations',
+  email: '',
   status: 'active',
   licenseNumber: '',
   licenseExpires: '',
@@ -120,6 +133,7 @@ export function Workspace({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<WorkerForm>(emptyWorker);
   const [showForm, setShowForm] = useState(false);
+  const [workerFocus, setWorkerFocus] = useState<WorkerFocus>('identity');
   const [scheduleRows, setScheduleRows] = useState<Record<string, unknown>[]>([]);
   const [assignableFlights, setAssignableFlights] = useState<
     { code: string; origin: string; destination: string; registration: string }[]
@@ -127,6 +141,9 @@ export function Workspace({
   const [companySettings, setCompanySettings] = useState<Record<string, unknown> | null>(null);
   const [settingsProfiles, setSettingsProfiles] = useState<Record<string, unknown>[]>([]);
   const [documentForm, setDocumentForm] = useState<AircraftDocumentForm>(emptyDocument);
+  const [aircraftForm, setAircraftForm] = useState<AircraftForm>(emptyAircraft);
+  const [showAircraftForm, setShowAircraftForm] = useState(false);
+  const [editingAircraftId, setEditingAircraftId] = useState<string | null>(null);
   const [showDocumentForm, setShowDocumentForm] = useState(false);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [fileRows, setFileRows] = useState<Record<string, unknown>[]>([]);
@@ -190,13 +207,17 @@ export function Workspace({
         }
         setHome(null);
         if (view === 'operations') {
-          const [services, expenses] = await Promise.all([
+          const [services, expenses, payments, flights] = await Promise.all([
             api<Record<string, unknown>[]>('/operations/services', token),
             api<Record<string, unknown>[]>('/operations/expenses', token),
+            api<Record<string, unknown>[]>('/operations/payments', token),
+            api<Record<string, unknown>[]>('/flights', token),
           ]);
           if (stop) return;
           setRows(services);
           setExtra(expenses);
+          setMore(payments);
+          setLog(flights);
           return;
         }
         if (view === 'crew') {
@@ -227,17 +248,30 @@ export function Workspace({
           return;
         }
         if (view === 'maintenance') {
-          const [inspections, discrepancies, orders, reviews] = await Promise.all([
+          const [inspections, discrepancies, orders, reviews, fleet] = await Promise.all([
             api<Record<string, unknown>[]>('/maintenance/inspections', token),
             api<Record<string, unknown>[]>('/maintenance/discrepancies', token),
             api<Record<string, unknown>[]>('/maintenance/work-orders', token),
             api<Record<string, unknown>[]>('/maintenance/log-review', token),
+            api<Record<string, unknown>[]>('/aircraft', token),
           ]);
           if (stop) return;
           setRows(inspections);
           setExtra(discrepancies);
           setMore(orders);
           setLog(reviews);
+          setAircraftOptions(fleet);
+          return;
+        }
+        if (view === 'library') {
+          const [docs, marks] = await Promise.all([
+            api<Record<string, unknown>[]>('/library/documents', token),
+            api<Record<string, unknown>[]>('/library/bookmarks', token),
+          ]);
+          if (stop) return;
+          setRows(docs);
+          setExtra(marks);
+          setFileRows([]);
           return;
         }
         const path =
@@ -245,9 +279,7 @@ export function Workspace({
             ? '/sms/reports'
             : view === 'communication'
               ? '/communication/meetings'
-              : view === 'library'
-                ? '/library/documents'
-                  : `/${view}`;
+              : `/${view}`;
         const data = await api<Record<string, unknown>[]>(path, token);
         if (stop) return;
         setRows(data);
@@ -319,6 +351,50 @@ export function Workspace({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
       return false;
+    }
+  }
+
+  function startEditAircraft(row: Record<string, unknown>) {
+    setEditingAircraftId(String(row.id));
+    setAircraftForm({
+      registration: String(row.registration ?? ''),
+      model: String(row.model ?? ''),
+      serialNumber: String(row.serial_number ?? ''),
+      base: String(row.base ?? ''),
+      technicalStatus: String(row.technical_status ?? 'unknown'),
+      airframeHours: row.airframe_hours == null ? '' : String(row.airframe_hours),
+      airframeCycles: row.airframe_cycles == null ? '' : String(row.airframe_cycles),
+    });
+    setShowAircraftForm(true);
+  }
+
+  async function submitAircraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const hours = aircraftForm.airframeHours.trim();
+    const cycles = aircraftForm.airframeCycles.trim();
+    const body = {
+      registration: aircraftForm.registration,
+      model: aircraftForm.model,
+      serialNumber: aircraftForm.serialNumber,
+      base: aircraftForm.base,
+      technicalStatus: aircraftForm.technicalStatus,
+      airframeHours: hours === '' ? null : Number(hours),
+      airframeCycles: cycles === '' ? null : Number(cycles),
+    };
+    setError('');
+    setNotice('');
+    try {
+      const saved = editingAircraftId
+        ? await api<{ id: string }>(`/aircraft/${editingAircraftId}`, token, { method: 'PUT', body: JSON.stringify(body) })
+        : await api<{ id: string }>('/aircraft', token, { method: 'POST', body: JSON.stringify(body) });
+      setNotice(editingAircraftId ? copy.saved : copy.created);
+      setShowAircraftForm(false);
+      setEditingAircraftId(null);
+      setAircraftForm(emptyAircraft());
+      setRows(await api<Record<string, unknown>[]>('/aircraft', token));
+      if (saved?.id) await openDetail(saved.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
     }
   }
 
@@ -542,6 +618,79 @@ export function Workspace({
     }
   }
 
+  async function reloadOperations() {
+    const [services, expenses, payments, flights] = await Promise.all([
+      api<Record<string, unknown>[]>('/operations/services', token),
+      api<Record<string, unknown>[]>('/operations/expenses', token),
+      api<Record<string, unknown>[]>('/operations/payments', token),
+      api<Record<string, unknown>[]>('/flights', token),
+    ]);
+    setRows(services);
+    setExtra(expenses);
+    setMore(payments);
+    setLog(flights);
+  }
+
+  async function saveOperation(path: string, body: Record<string, unknown>) {
+    setError('');
+    setNotice('');
+    try {
+      await api(path, token, { method: 'POST', body: JSON.stringify(body) });
+      setNotice(copy.created);
+      await reloadOperations();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function approveExpense(id: string) {
+    setError('');
+    setNotice('');
+    try {
+      await api(`/operations/expenses/${id}/status`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'approved' }),
+      });
+      setNotice(copy.saved);
+      await reloadOperations();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function reloadMaintenance() {
+    const [inspections, discrepancies, orders, reviews, fleet] = await Promise.all([
+      api<Record<string, unknown>[]>('/maintenance/inspections', token),
+      api<Record<string, unknown>[]>('/maintenance/discrepancies', token),
+      api<Record<string, unknown>[]>('/maintenance/work-orders', token),
+      api<Record<string, unknown>[]>('/maintenance/log-review', token),
+      api<Record<string, unknown>[]>('/aircraft', token),
+    ]);
+    setRows(inspections);
+    setExtra(discrepancies);
+    setMore(orders);
+    setLog(reviews);
+    setAircraftOptions(fleet);
+  }
+
+  async function saveMaintenance(path: string, body: Record<string, unknown>) {
+    setError('');
+    setNotice('');
+    try {
+      await api(path, token, { method: 'POST', body: JSON.stringify(body) });
+      setNotice(copy.created);
+      await reloadMaintenance();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
   async function startCreateFlight() {
     setError('');
     try {
@@ -652,25 +801,124 @@ export function Workspace({
     }
   }
 
-  async function sendReport(event: FormEvent<HTMLFormElement>): Promise<boolean> {
-    event.preventDefault();
-    const formEl = event.currentTarget;
-    const data = new FormData(formEl);
+  async function reloadLibrary() {
+    const [docs, marks] = await Promise.all([
+      api<Record<string, unknown>[]>('/library/documents', token),
+      api<Record<string, unknown>[]>('/library/bookmarks', token),
+    ]);
+    setRows(docs);
+    setExtra(marks);
+  }
+
+  async function createLibraryDocument(body: Record<string, unknown>, file: File | null) {
     setNotice('');
     setError('');
     try {
-      await api('/sms/reports', token, {
-        method: 'POST',
-        body: JSON.stringify({
-          title: String(data.get('title') ?? ''),
-          narrative: String(data.get('narrative') ?? ''),
-          anonymous: data.get('anonymous') === 'on',
-          severity: 'medium',
-        }),
-      });
-      formEl.reset();
+      const saved = await api<{ id: string }>('/library/documents', token, { method: 'POST', body: JSON.stringify(body) });
+      if (file && saved?.id) {
+        const form = new FormData();
+        form.append('module', 'library');
+        form.append('entityId', saved.id);
+        form.append('file', file);
+        await uploadFile('/files', token, form);
+      }
+      setNotice(copy.created);
+      await reloadLibrary();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function createLibraryBookmark(body: Record<string, unknown>) {
+    setNotice('');
+    setError('');
+    try {
+      await api('/library/bookmarks', token, { method: 'POST', body: JSON.stringify(body) });
+      setNotice(copy.saved);
+      await reloadLibrary();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function openLibraryDocument(id: string) {
+    setError('');
+    try {
+      setFileRows(await api<Record<string, unknown>[]>(`/files?module=library&entityId=${encodeURIComponent(id)}`, token));
+    } catch (err) {
+      setFileRows([]);
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function openLibraryOriginal(fileId: string, name: string) {
+    setError('');
+    try {
+      const { url } = await fetchStoredFileBlob(fileId, token);
+      const opened = window.open(url, '_blank', 'noopener');
+      if (!opened) await downloadAuthorized(`/files/${fileId}/download`, token, name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+    }
+  }
+
+  async function reloadMeetings() {
+    setRows(await api<Record<string, unknown>[]>('/communication/meetings', token));
+  }
+
+  async function createMeeting(body: Record<string, unknown>) {
+    setNotice('');
+    setError('');
+    try {
+      await api('/communication/meetings', token, { method: 'POST', body: JSON.stringify(body) });
+      setNotice(copy.created);
+      await reloadMeetings();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function saveMinutes(id: string, body: Record<string, unknown>) {
+    setNotice('');
+    setError('');
+    try {
+      await api(`/communication/meetings/${id}/minutes`, token, { method: 'PUT', body: JSON.stringify(body) });
+      setNotice(copy.saved);
+      await reloadMeetings();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function sendReport(body: { title: string; narrative: string; anonymous: boolean; severity: string }): Promise<boolean> {
+    setNotice('');
+    setError('');
+    try {
+      await api('/sms/reports', token, { method: 'POST', body: JSON.stringify(body) });
       setNotice(copy.sms.sent);
       if (canReadSms) setRows(await api('/sms/reports', token));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function updateSmsStatus(id: string, status: string) {
+    setNotice('');
+    setError('');
+    try {
+      await api(`/sms/reports/${id}/status`, token, { method: 'PUT', body: JSON.stringify({ status }) });
+      setNotice(copy.saved);
+      setRows(await api('/sms/reports', token));
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
@@ -682,76 +930,121 @@ export function Workspace({
     event.preventDefault();
     setError('');
     setNotice('');
-    const body = {
-      employeeCode: form.employeeCode,
-      fullName: form.fullName,
-      position: form.position,
-      base: form.base,
-      status: form.status,
-      licenseNumber: form.licenseNumber || null,
-      licenseExpires: form.licenseExpires || null,
-      medicalExpires: form.medicalExpires || null,
-    };
+    const body =
+      workerFocus === 'license'
+        ? { licenseNumber: form.licenseNumber || null, licenseExpires: form.licenseExpires || null }
+        : workerFocus === 'medical'
+          ? { medicalExpires: form.medicalExpires || null }
+          : {
+              employeeCode: form.employeeCode,
+              fullName: form.fullName,
+              position: form.position,
+              base: form.base,
+              team: form.team,
+              email: form.email || null,
+              status: editingId ? form.status : 'active',
+            };
     const workerId = editingId;
     try {
-      if (workerId) {
-        await api(`/crew/${workerId}`, token, { method: 'PUT', body: JSON.stringify(body) });
-        setNotice(copy.saved);
-      } else {
-        await api('/crew', token, { method: 'POST', body: JSON.stringify(body) });
-        setNotice(copy.created);
-      }
+      const saved = workerId
+        ? await api<{ id: string }>(`/crew/${workerId}`, token, { method: 'PUT', body: JSON.stringify(body) })
+        : await api<{ id: string }>('/crew', token, { method: 'POST', body: JSON.stringify(body) });
+      setNotice(workerId ? copy.saved : copy.created);
       setShowForm(false);
       setEditingId(null);
+      setWorkerFocus('identity');
       setForm(emptyWorker());
       await reloadCrew();
-      if (workerId) await openDetail(workerId);
+      if (saved?.id) await openDetail(saved.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
     }
   }
 
-  async function submitAssignment(event: FormEvent<HTMLFormElement>): Promise<boolean> {
-    event.preventDefault();
-    if (!detail?.id) {
+  function assignmentBody(payload: AssignmentSave) {
+    const startMs = new Date(payload.startsAt).getTime();
+    const endMs = new Date(payload.endsAt).getTime();
+    return {
+      ok: !Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs > startMs,
+      body: {
+        activity: payload.activity,
+        startsAt: new Date(payload.startsAt).toISOString(),
+        endsAt: new Date(payload.endsAt).toISOString(),
+        notes: payload.notes,
+        flightCode: payload.flightCode,
+        origin: payload.origin,
+        destination: payload.destination,
+        aircraftRegistration: payload.aircraftRegistration,
+      },
+    };
+  }
+
+  async function submitAssignment(payload: AssignmentSave): Promise<boolean> {
+    if (payload.workerIds.length === 0 || !payload.activity) {
       setError(copy.crew.assignmentNeedWorker);
       return false;
     }
-    const formEl = event.currentTarget;
-    const data = new FormData(formEl);
+    const packed = assignmentBody(payload);
+    if (!packed.ok) {
+      setError(copy.crew.assignmentEndAfterStart);
+      return false;
+    }
     setError('');
     setNotice('');
     try {
-      const starts = String(data.get('startsAt') ?? '');
-      const ends = String(data.get('endsAt') ?? '');
-      const startMs = starts ? new Date(starts).getTime() : NaN;
-      const endMs = ends ? new Date(ends).getTime() : NaN;
-      if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
-        setError(copy.crew.assignmentEndAfterStart);
-        return false;
+      for (const workerId of payload.workerIds) {
+        await api(`/crew/${workerId}/assignments`, token, {
+          method: 'POST',
+          body: JSON.stringify(packed.body),
+        });
       }
-      await api(`/crew/${detail.id}/assignments`, token, {
-        method: 'POST',
-        body: JSON.stringify({
-          activity: String(data.get('activity') ?? ''),
-          startsAt: starts ? new Date(starts).toISOString() : '',
-          endsAt: ends ? new Date(ends).toISOString() : '',
-          notes: String(data.get('notes') ?? ''),
-          flightCode: String(data.get('flightCode') ?? '').trim() || null,
-          origin: String(data.get('origin') ?? '').trim() || null,
-          destination: String(data.get('destination') ?? '').trim() || null,
-          aircraftRegistration: String(data.get('aircraftRegistration') ?? '').trim() || null,
-        }),
-      });
-      formEl.reset();
       setNotice(copy.created);
-      await openDetail(String(detail.id));
       setScheduleRows(await api('/crew/assignments', token));
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
       return false;
     }
+  }
+
+  async function updateAssignment(id: string, payload: AssignmentSave): Promise<boolean> {
+    const packed = assignmentBody(payload);
+    if (!packed.ok || !payload.activity) {
+      setError(copy.crew.assignmentEndAfterStart);
+      return false;
+    }
+    setError('');
+    setNotice('');
+    try {
+      await api(`/crew/assignments/${id}`, token, { method: 'PUT', body: JSON.stringify(packed.body) });
+      setNotice(copy.saved);
+      setScheduleRows(await api('/crew/assignments', token));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed');
+      return false;
+    }
+  }
+
+  async function moveAssignment(id: string, dayKey: string) {
+    const row = scheduleRows.find((item) => String(item.id) === id);
+    if (!row) return;
+    const starts = String(row.starts_at ?? '');
+    const ends = String(row.ends_at ?? '');
+    if (dayKeyLocal(starts) === dayKey) return;
+    const shifted = shiftAssignmentToDay(starts, ends, dayKey);
+    if (!shifted) return;
+    await updateAssignment(id, {
+      workerIds: [String(row.worker_id ?? '')],
+      activity: String(row.activity ?? ''),
+      startsAt: shifted.startsAt,
+      endsAt: shifted.endsAt,
+      notes: String(row.notes ?? ''),
+      flightCode: row.flight_code ? String(row.flight_code) : null,
+      origin: row.origin ? String(row.origin) : null,
+      destination: row.destination ? String(row.destination) : null,
+      aircraftRegistration: row.aircraft_registration ? String(row.aircraft_registration) : null,
+    });
   }
 
   async function deleteAssignment(assignmentId: string) {
@@ -859,13 +1152,16 @@ export function Workspace({
     }
   }
 
-  function startEdit(row: Record<string, unknown>) {
+  function startEdit(row: Record<string, unknown>, focus: WorkerFocus = 'identity') {
+    setWorkerFocus(focus);
     setEditingId(String(row.id));
     setForm({
       employeeCode: String(row.employee_code ?? ''),
       fullName: String(row.full_name ?? ''),
       position: String(row.position ?? ''),
       base: String(row.base ?? ''),
+      team: String(row.team ?? 'operations'),
+      email: String(row.email ?? ''),
       status: String(row.status ?? 'active'),
       licenseNumber: String(row.license_number ?? ''),
       licenseExpires: String(row.license_expires ?? '').slice(0, 10),
@@ -1008,13 +1304,17 @@ export function Workspace({
               onShowForm={setShowForm}
               onStartCreate={() => {
                 setEditingId(null);
+                setWorkerFocus('identity');
                 setForm(emptyWorker());
                 setShowForm(true);
               }}
+              workerFocus={workerFocus}
               onStartEdit={startEdit}
               onSubmit={submitCrew}
               onDelete={softDeleteCrew}
               onCreateAssignment={submitAssignment}
+              onUpdateAssignment={updateAssignment}
+              onMoveAssignment={moveAssignment}
               assignableFlights={assignableFlights}
               onDeleteAssignment={deleteAssignment}
               onPublishAssignment={publishAssignment}
@@ -1045,6 +1345,18 @@ export function Workspace({
               locale={locale}
               rows={listRows}
               detail={detail}
+              aircraftForm={aircraftForm}
+              showAircraftForm={showAircraftForm}
+              editingAircraftId={editingAircraftId}
+              onAircraftFormChange={setAircraftForm}
+              onShowAircraftForm={setShowAircraftForm}
+              onStartCreateAircraft={() => {
+                setEditingAircraftId(null);
+                setAircraftForm(emptyAircraft());
+                setShowAircraftForm(true);
+              }}
+              onStartEditAircraft={startEditAircraft}
+              onSubmitAircraft={submitAircraft}
               documentForm={documentForm}
               showDocumentForm={showDocumentForm}
               editingDocumentId={editingDocumentId}
@@ -1089,7 +1401,18 @@ export function Workspace({
           ) : null}
 
           {view === 'operations' ? (
-            <OperationsPage locale={locale} services={listRows} expenses={extra} />
+            <OperationsPage
+              locale={locale}
+              actorEmail={user.email}
+              services={listRows}
+              expenses={extra}
+              payments={more}
+              flights={log}
+              onCreateService={(body) => saveOperation('/operations/services', body)}
+              onCreateExpense={(body) => saveOperation('/operations/expenses', body)}
+              onApproveExpense={approveExpense}
+              onCreatePayment={(body) => saveOperation('/operations/payments', body)}
+            />
           ) : null}
 
           {view === 'maintenance' ? (
@@ -1099,16 +1422,34 @@ export function Workspace({
               discrepancies={extra}
               orders={more}
               logReviews={log}
+              aircraft={aircraftOptions}
+              onCreateInspection={(body) => saveMaintenance('/maintenance/inspections', body)}
+              onCreateDiscrepancy={(body) => saveMaintenance('/maintenance/discrepancies', body)}
+              onCreateOrder={(body) => saveMaintenance('/maintenance/work-orders', body)}
             />
           ) : null}
 
           {view === 'sms' ? (
-            <SmsPage locale={locale} rows={listRows} canRead={canReadSms} onSubmit={sendReport} />
+            <SmsPage locale={locale} rows={listRows} canRead={canReadSms} onSubmit={sendReport} onStatus={updateSmsStatus} />
           ) : null}
 
-          {view === 'communication' ? <CommunicationPage locale={locale} rows={listRows} /> : null}
+          {view === 'communication' ? (
+            <CommunicationPage locale={locale} rows={listRows} onCreate={createMeeting} onMinutes={saveMinutes} />
+          ) : null}
 
-          {view === 'library' ? <LibraryPage locale={locale} rows={listRows} /> : null}
+          {view === 'library' ? (
+            <LibraryPage
+              locale={locale}
+              isAdmin={user.profile === 'admin'}
+              rows={listRows}
+              bookmarks={extra}
+              files={fileRows}
+              onCreate={createLibraryDocument}
+              onBookmark={createLibraryBookmark}
+              onOpen={openLibraryDocument}
+              onOpenOriginal={openLibraryOriginal}
+            />
+          ) : null}
 
           {view === 'settings' ? (
             <SettingsPage

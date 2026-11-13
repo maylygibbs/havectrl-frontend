@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useMemo, useRef, useState } from 'react';
 import { Locale, t } from '../i18n/catalog';
+import { Autocomplete } from '../ui/Autocomplete';
 import { DataPanel, MasterList, ModuleHero, ModuleTabs, StatusPill } from '../ui/ModuleChrome';
 import { isPreviewableMime } from '../ui/file-preview';
 import { Modal } from '../ui/Modal';
@@ -13,10 +14,28 @@ export type AircraftDocumentForm = {
   expiresOn: string;
 };
 
+export type AircraftForm = {
+  registration: string;
+  model: string;
+  serialNumber: string;
+  base: string;
+  technicalStatus: string;
+  airframeHours: string;
+  airframeCycles: string;
+};
+
 type Props = {
   locale: Locale;
   rows: Record<string, unknown>[];
   detail: Record<string, unknown> | null;
+  aircraftForm: AircraftForm;
+  showAircraftForm: boolean;
+  editingAircraftId: string | null;
+  onAircraftFormChange: (form: AircraftForm) => void;
+  onShowAircraftForm: (show: boolean) => void;
+  onStartCreateAircraft: () => void;
+  onStartEditAircraft: (row: Record<string, unknown>) => void;
+  onSubmitAircraft: (event: FormEvent<HTMLFormElement>) => void;
   documentForm: AircraftDocumentForm;
   showDocumentForm: boolean;
   editingDocumentId: string | null;
@@ -38,6 +57,14 @@ export function AircraftPage({
   locale,
   rows,
   detail,
+  aircraftForm,
+  showAircraftForm,
+  editingAircraftId,
+  onAircraftFormChange,
+  onShowAircraftForm,
+  onStartCreateAircraft,
+  onStartEditAircraft,
+  onSubmitAircraft,
   documentForm,
   showDocumentForm,
   editingDocumentId,
@@ -59,19 +86,13 @@ export function AircraftPage({
   const [tab, setTab] = useState<'overview' | 'documents' | 'discrepancies' | 'history'>('overview');
   const [documentSearch, setDocumentSearch] = useState('');
   const [fileSearch, setFileSearch] = useState('');
-  const selectedId = detail ? String(detail.id) : rows[0] ? String(rows[0].id) : null;
+  const selectedId = detail ? String(detail.id) : null;
   const documents = (detail?.documents as Record<string, unknown>[]) ?? [];
   const documentsVisible = useMemo(
     () => filterRowsBySearch(documents, documentSearch),
     [documents, documentSearch],
   );
   const filesVisible = useMemo(() => filterRowsBySearch(fileRows, fileSearch), [fileRows, fileSearch]);
-
-  useEffect(() => {
-    const first = rows[0];
-    if (!detail && first && 'registration' in first) onSelect(String(first.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows.length, detail?.id]);
 
   const items = useMemo(
     () =>
@@ -102,6 +123,80 @@ export function AircraftPage({
         active={tab}
         onChange={(id) => setTab(id as typeof tab)}
       />
+      {tab === 'overview' ? (
+        <div className="module-toolbar">
+          <button type="button" onClick={onStartCreateAircraft}>
+            {copy.aircraftForm.newAircraft}
+          </button>
+        </div>
+      ) : null}
+
+      <Modal
+        open={showAircraftForm}
+        title={editingAircraftId ? copy.aircraftForm.editAircraft : copy.aircraftForm.newAircraft}
+        closeLabel={copy.cancel}
+        onClose={() => onShowAircraftForm(false)}
+      >
+        <form className="stack" onSubmit={onSubmitAircraft}>
+          <p className="status">{copy.aircraftForm.notAirworthy}</p>
+          <label htmlFor="ac-registration">{copy.aircraftForm.registration}</label>
+          <input id="ac-registration" value={aircraftForm.registration} onChange={(e) => onAircraftFormChange({ ...aircraftForm, registration: e.target.value })} required />
+          <label htmlFor="ac-model">{copy.aircraftForm.model}</label>
+          <Autocomplete
+            id="ac-model"
+            allowCustom
+            options={[...new Set(rows.map((row) => String(row.model ?? '')).filter(Boolean))].map((value) => ({ value, label: value }))}
+            values={aircraftForm.model ? [aircraftForm.model] : []}
+            placeholder={copy.aircraftForm.model}
+            emptyLabel={copy.empty}
+            onChange={(values) => onAircraftFormChange({ ...aircraftForm, model: values[0] ?? '' })}
+          />
+          <label htmlFor="ac-serial">{copy.aircraftForm.serial}</label>
+          <input id="ac-serial" value={aircraftForm.serialNumber} onChange={(e) => onAircraftFormChange({ ...aircraftForm, serialNumber: e.target.value })} required />
+          <label htmlFor="ac-base">{copy.aircraftForm.base}</label>
+          <Autocomplete
+            id="ac-base"
+            allowCustom
+            options={[...new Set(rows.map((row) => String(row.base ?? '')).filter(Boolean))].map((value) => ({ value, label: value }))}
+            values={aircraftForm.base ? [aircraftForm.base] : []}
+            placeholder={copy.aircraftForm.base}
+            emptyLabel={copy.empty}
+            onChange={(values) => onAircraftFormChange({ ...aircraftForm, base: values[0] ?? '' })}
+          />
+          <span id="ac-status">{copy.aircraftForm.technicalStatus}</span>
+          <div className="magic-filters" role="group" aria-labelledby="ac-status">
+            {(
+              [
+                ['unknown', copy.aircraftForm.statusUnknown],
+                ['in_service', copy.aircraftForm.statusInService],
+                ['in_maintenance', copy.aircraftForm.statusInMaintenance],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`magic-chip${aircraftForm.technicalStatus === value ? ' is-on' : ''}`}
+                onClick={() => onAircraftFormChange({ ...aircraftForm, technicalStatus: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="status">{copy.aircraftForm.hoursHint}</p>
+          <label htmlFor="ac-hours">{copy.aircraftForm.hours}</label>
+          <input id="ac-hours" type="number" min="0" step="0.1" value={aircraftForm.airframeHours} onChange={(e) => onAircraftFormChange({ ...aircraftForm, airframeHours: e.target.value })} />
+          <label htmlFor="ac-cycles">{copy.aircraftForm.cycles}</label>
+          <input id="ac-cycles" type="number" min="0" step="1" value={aircraftForm.airframeCycles} onChange={(e) => onAircraftFormChange({ ...aircraftForm, airframeCycles: e.target.value })} />
+          <div className="actions">
+            <button type="submit" disabled={!aircraftForm.model || !aircraftForm.base}>
+              {editingAircraftId ? copy.save : copy.aircraftForm.newAircraft}
+            </button>
+            <button type="button" className="ghost" onClick={() => onShowAircraftForm(false)}>
+              {copy.cancel}
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal
         open={showDocumentForm}
@@ -117,13 +212,25 @@ export function AircraftPage({
             onChange={(e) => onDocumentFormChange({ ...documentForm, title: e.target.value })}
             required
           />
-          <label htmlFor="doc-status">{copy.aircraftForm.documentStatus}</label>
-          <input
-            id="doc-status"
-            value={documentForm.status}
-            onChange={(e) => onDocumentFormChange({ ...documentForm, status: e.target.value })}
-            required
-          />
+          <span id="doc-status">{copy.aircraftForm.documentStatus}</span>
+          <div className="magic-filters" role="group" aria-labelledby="doc-status">
+            {(
+              [
+                ['valid', copy.aircraftForm.docValid],
+                ['expiring', copy.aircraftForm.docExpiring],
+                ['expired', copy.aircraftForm.docExpired],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`magic-chip${documentForm.status === value ? ' is-on' : ''}`}
+                onClick={() => onDocumentFormChange({ ...documentForm, status: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <label htmlFor="doc-expires">{copy.aircraftForm.documentExpires}</label>
           <input
             id="doc-expires"
@@ -132,7 +239,7 @@ export function AircraftPage({
             onChange={(e) => onDocumentFormChange({ ...documentForm, expiresOn: e.target.value })}
           />
           <div className="actions">
-            <button type="submit">{editingDocumentId ? copy.save : copy.create}</button>
+            <button type="submit">{editingDocumentId ? copy.save : copy.aircraftForm.createDocument}</button>
             <button type="button" className="ghost" onClick={() => onShowDocumentForm(false)}>
               {copy.cancel}
             </button>
@@ -155,26 +262,34 @@ export function AircraftPage({
           ) : tab === 'overview' ? (
             <DataPanel
               title={`${cellText(detail.registration)} · ${cellText(detail.model)}`}
-              action={<StatusPill status={String(detail.technical_status ?? 'unknown')} />}
+              action={
+                <button type="button" className="ghost btn-compact" onClick={() => onStartEditAircraft(detail)}>
+                  {copy.aircraftForm.editAircraft}
+                </button>
+              }
             >
+              <p className="status">{copy.aircraftForm.notAirworthy}</p>
               <div className="metric-grid metric-grid-4">
                 <div className="metric-card static">
-                  <span className="metric-label">{copy.columns.airframe_hours}</span>
-                  <strong className="metric-value">{cellText(detail.airframe_hours)}</strong>
+                  <span className="metric-label">{copy.aircraftForm.serial}</span>
+                  <strong className="metric-value small">{cellText(detail.serial_number)}</strong>
                 </div>
                 <div className="metric-card static">
-                  <span className="metric-label">{copy.columns.airframe_cycles}</span>
-                  <strong className="metric-value">{cellText(detail.airframe_cycles)}</strong>
+                  <span className="metric-label">{copy.aircraftForm.base}</span>
+                  <strong className="metric-value small">{cellText(detail.base)}</strong>
                 </div>
                 <div className="metric-card static">
-                  <span className="metric-label">{copy.columns.registration}</span>
-                  <strong className="metric-value small">{cellText(detail.registration)}</strong>
+                  <span className="metric-label">{copy.aircraftForm.hours}</span>
+                  <strong className="metric-value">{detail.airframe_hours == null || detail.airframe_hours === '' ? '—' : cellText(detail.airframe_hours)}</strong>
                 </div>
                 <div className="metric-card static">
-                  <span className="metric-label">{copy.columns.model}</span>
-                  <strong className="metric-value small">{cellText(detail.model)}</strong>
+                  <span className="metric-label">{copy.aircraftForm.cycles}</span>
+                  <strong className="metric-value">{detail.airframe_cycles == null || detail.airframe_cycles === '' ? '—' : cellText(detail.airframe_cycles)}</strong>
                 </div>
               </div>
+              <p>
+                <StatusPill status={String(detail.technical_status ?? 'unknown')} />
+              </p>
             </DataPanel>
           ) : tab === 'documents' ? (
             <DataPanel

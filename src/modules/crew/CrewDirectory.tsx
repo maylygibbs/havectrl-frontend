@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Locale, t } from '../../i18n/catalog';
+import { Autocomplete } from '../../ui/Autocomplete';
 import { StatusPill } from '../../ui/ModuleChrome';
 import { TableSearchBar } from '../../ui/TableSearchBar';
 import { filterMasterItems } from '../../ui/table-filter';
@@ -28,11 +29,10 @@ export function CrewDirectory({ locale, items, selectedId, onSelect, onAddWorker
   const copy = t(locale);
   const [query, setQuery] = useState('');
   const [baseFilter, setBaseFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [positionFilter, setPositionFilter] = useState('');
 
   const bases = useMemo(() => [...new Set(items.map((i) => i.base).filter(Boolean))].sort(), [items]);
-  const statuses = useMemo(() => [...new Set(items.map((i) => i.status).filter(Boolean))].sort(), [items]);
   const positions = useMemo(() => [...new Set(items.map((i) => i.position).filter(Boolean))].sort(), [items]);
 
   const filtered = useMemo(() => {
@@ -41,7 +41,8 @@ export function CrewDirectory({ locale, items, selectedId, onSelect, onAddWorker
       query,
     ).map((row) => items.find((i) => i.id === row.id)!);
     if (baseFilter) list = list.filter((i) => i.base === baseFilter);
-    if (statusFilter) list = list.filter((i) => i.status === statusFilter);
+    if (statusFilter === 'active') list = list.filter((i) => i.status === 'active');
+    if (statusFilter === 'inactive') list = list.filter((i) => i.status !== 'active');
     if (positionFilter) list = list.filter((i) => i.position === positionFilter);
     return list;
   }, [items, query, baseFilter, statusFilter, positionFilter]);
@@ -57,38 +58,39 @@ export function CrewDirectory({ locale, items, selectedId, onSelect, onAddWorker
 
       {items.length > 0 ? <TableSearchBar locale={locale} value={query} onChange={setQuery} id="crew-dir-search" /> : null}
 
+      <div className="magic-filters" role="group" aria-label={copy.crew.status}>
+        <button type="button" className={`magic-chip${statusFilter === 'all' ? ' is-on' : ''}`} onClick={() => setStatusFilter('all')}>
+          {copy.crew.filterAll}
+        </button>
+        <button type="button" className={`magic-chip${statusFilter === 'active' ? ' is-on' : ''}`} onClick={() => setStatusFilter('active')}>
+          {copy.crew.filterActive}
+        </button>
+        <button type="button" className={`magic-chip${statusFilter === 'inactive' ? ' is-on' : ''}`} onClick={() => setStatusFilter('inactive')}>
+          {copy.crew.filterInactive}
+        </button>
+      </div>
       <div className="crew-filters" role="group" aria-label={copy.crew.filters}>
-        <select value={baseFilter} onChange={(e) => setBaseFilter(e.target.value)} aria-label={copy.crew.base}>
-          <option value="">{copy.crew.allBases}</option>
-          {bases.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-        </select>
-        <select value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)} aria-label={copy.crew.position}>
-          <option value="">{copy.crew.allPositions}</option>
-          {positions.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={copy.crew.status}>
-          <option value="">{copy.crew.allStatuses}</option>
-          {statuses.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        {baseFilter || statusFilter || positionFilter ? (
+        <Autocomplete
+          options={bases.map((value) => ({ value, label: value }))}
+          values={baseFilter ? [baseFilter] : []}
+          placeholder={copy.crew.allBases}
+          emptyLabel={copy.empty}
+          onChange={(values) => setBaseFilter(values[0] ?? '')}
+        />
+        <Autocomplete
+          options={positions.map((value) => ({ value, label: value }))}
+          values={positionFilter ? [positionFilter] : []}
+          placeholder={copy.crew.allPositions}
+          emptyLabel={copy.empty}
+          onChange={(values) => setPositionFilter(values[0] ?? '')}
+        />
+        {baseFilter || statusFilter !== 'all' || positionFilter ? (
           <button
             type="button"
             className="ghost btn-compact"
             onClick={() => {
               setBaseFilter('');
-              setStatusFilter('');
+              setStatusFilter('all');
               setPositionFilter('');
             }}
           >

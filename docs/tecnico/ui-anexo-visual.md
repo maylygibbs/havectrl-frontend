@@ -40,7 +40,7 @@ Detalle de rutas: `design-assets/marketing/README.md`.
 | --- | --- | --- | --- |
 | Home | — | `heroes/hero-home.png` | Métricas + vuelos + flota + actividad |
 | Settings | General, Units, Alerts, Roles, Templates, Integrations | — | Perfil compañía + usuarios |
-| Crew | Data, Schedule, Experience | `hero-crew.png` | Directorio + ficha (Vol. 02 / lámina 02); ver [ui-crew-v02.md](./ui-crew-v02.md) |
+| Crew | Data, Schedule, Experience | `hero-crew.png` | Directorio + ficha (Vol. 02 / lámina 02). Alcance: `havectrl-backend/docs/producto/08-crew-iteracion-1.md` |
 | Aircraft | Overview, Documents, Discrepancies, Flight History | `hero-aircraft.png` | Lista flota + detalle |
 | Flights | Planning, Plan, Daily Log, W&B, Tracking, Weather, Converter | `hero-flights.png` | Tabs + listados API; detalle de vuelo en `Modal`; búsqueda por grilla vía `DataTable` / `TableSearchBar` |
 | Operations | Overview, Fees, Services, Payments, Documents | `hero-operations.png` | Servicios y gastos |
