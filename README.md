@@ -39,6 +39,10 @@ Al cargar, la app llama `GET /common/domain/config`. El navegador envía `Origin
 | `npm run build` | Comprueba tipos y genera `dist/` |
 | `npm run preview` | Sirve la compilación |
 
+## Idioma
+
+Inglés por defecto. El selector del login y del workspace cambia a español. Si hay sesión, la preferencia se guarda en la cuenta.
+
 ## Documentación
 
-La arquitectura y el multitenant están en `../havectrl-backend/docs/producto/06-arquitectura-multitenant.md`. El resto del producto está en `../havectrl-backend/docs/producto/`. Las reglas de la interfaz están en `AGENTS.md`.
+La arquitectura y el multitenant están en `../havectrl-backend/docs/producto/06-arquitectura-multitenant.md`. El avance de soft delete, Crew e idioma está en `../havectrl-backend/docs/producto/07-iteracion1-avance.md`. Las reglas de la interfaz están en `AGENTS.md`.

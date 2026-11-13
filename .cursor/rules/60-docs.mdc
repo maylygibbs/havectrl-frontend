@@ -1,0 +1,13 @@
+---
+description: Reglas de agente en docs/. El producto canónico está en el backend.
+globs: docs/**/*.md,AGENTS.md,CLAUDE.md
+alwaysApply: false
+---
+
+# Documentación
+
+Detalle: `docs/reglas/07-documentacion.md`.
+
+- Producto: `../havectrl-backend/docs/producto/`.
+- No copies esa ley aquí ni dentro de un `.mdc`.
+- `CLAUDE.md` solo importa `AGENTS.md`.

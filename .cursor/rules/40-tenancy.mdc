@@ -1,0 +1,13 @@
+---
+description: El dominio sale de GET /common/domain/config. El cliente no elige slug.
+globs: src/api.ts,src/Workspace.tsx
+alwaysApply: false
+---
+
+# Tenancy
+
+Detalle: `docs/reglas/04-tenancy.md`.
+
+- `GET /common/domain/config` con el `Origin` del navegador.
+- Sin fallback a un slug de demo.
+- El menú sale de `modules` de la sesión, no de un mapa nuevo en el cliente.

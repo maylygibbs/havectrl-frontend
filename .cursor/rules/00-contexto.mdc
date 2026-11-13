@@ -1,0 +1,12 @@
+---
+description: Contexto corto del frontend HaveCtrl. La ley está en AGENTS.md y docs/.
+alwaysApply: true
+---
+
+# Contexto
+
+Lee `AGENTS.md`. Reglas de review: `docs/REGLAS_DE_ORO.md`. Detalle: `docs/reglas/00-principios.md`.
+
+Producto: `../havectrl-backend/docs/producto/`. No cierres una duda que ese directorio deja abierta.
+
+Un build. El hostname decide el cliente. El front no envía el slug.
